@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.local/
+*.tmp
+.glue/
+.glue-install-*/
+.glue-plugin-stage-*/
+.glue-host-connection-lock/
+.agents/skills/glue/
+.claude/skills/glue/
+.codex/config.toml
+.mcp.json

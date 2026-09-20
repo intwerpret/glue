@@ -1,0 +1,6 @@
+interface:
+  display_name: "Glue"
+  short_description: "Versioned handoffs and selected evidence history"
+  default_prompt: "Use $glue to resume my saved Markdown handoff."
+policy:
+  allow_implicit_invocation: false
