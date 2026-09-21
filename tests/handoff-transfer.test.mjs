@@ -1,12 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtempSync,rmSync,writeFileSync,readFileSync,existsSync} from 'node:fs';
+import {mkdtempSync, realpathSync,rmSync,writeFileSync,readFileSync,existsSync} from 'node:fs';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {Handoffs,hash} from '../dist/handoff.js';
 import {Transfers} from '../dist/transfer.js';
 
-function fixture(t){const workspace=mkdtempSync(join(tmpdir(),'glue-transfer-'));t.after(()=>rmSync(workspace,{recursive:true,force:true}));const store=new Handoffs(workspace);return {workspace,store,transfers:new Transfers(store)};}
+function fixture(t){const workspace=mkdtempSync(join(realpathSync(tmpdir()),'glue-transfer-'));t.after(()=>rmSync(workspace,{recursive:true,force:true}));const store=new Handoffs(workspace);return {workspace,store,transfers:new Transfers(store)};}
 const capture=(id,text,extra={})=>({id,label:'Selected source',representation:'excerpt',basis:'Selected paragraph',scope:'Applies to the named experiment only.',transfer:'allowed',base64:Buffer.from(text).toString('base64'),...extra});
 const save=(store,markdown,extra={})=>store.save({context:'note.md',expectedVersion:null,markdown,...extra});
 function exported(transfers,selection){const preview=transfers.run({action:'preview',...selection});return transfers.run({action:'export',...selection,reviewedHash:preview.payloadHash});}

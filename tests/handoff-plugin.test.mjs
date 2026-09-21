@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, realpathSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
@@ -9,7 +9,7 @@ import { selectProject } from '../integration/glue/project-binding.mjs';
 import { collectFiles, fingerprint } from '../scripts/installation-files.mjs';
 
 function fixture(t) {
-  const root = mkdtempSync(join(tmpdir(), 'glue-plugin-'));
+  const root = mkdtempSync(join(realpathSync(tmpdir()), 'glue-plugin-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const project = join(root, 'Project space é'), other = join(root, 'Other project');
   mkdirSync(project); mkdirSync(other);
@@ -84,7 +84,7 @@ test('switching package directories retains project history and removing the pac
 
 test('marketplace package lists the packaged plugin by relative source and ships its license', async t => {
   const { packageMarketplace } = await import('../scripts/package-marketplace.mjs');
-  const root = mkdtempSync(join(tmpdir(), 'glue-marketplace-'));
+  const root = mkdtempSync(join(realpathSync(tmpdir()), 'glue-marketplace-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const output = join(root, 'marketplace');
   assert.throws(() => packageMarketplace(output), /owner/);

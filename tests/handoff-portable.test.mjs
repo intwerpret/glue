@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, realpathSync, readFileSync, readdirSync, renameSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { Handoffs, hash } from '../dist/handoff.js';
@@ -8,7 +8,7 @@ import { pathKey } from '../dist/identity.js';
 import { Knowledge } from '../dist/knowledge.js';
 
 function fixture(t) {
-  const workspace = mkdtempSync(join(tmpdir(), 'glue-portable-'));
+  const workspace = mkdtempSync(join(realpathSync(tmpdir()), 'glue-portable-'));
   t.after(() => rmSync(workspace, { recursive: true, force: true }));
   return { workspace, store: new Handoffs(workspace) };
 }

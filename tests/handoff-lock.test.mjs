@@ -9,7 +9,7 @@ import {acquireLock,withWriteLock} from '../dist/storage.js';
 import {Handoffs} from '../dist/handoff.js';
 import {Transfers} from '../dist/transfer.js';
 
-function fixture(t){const workspace=fs.mkdtempSync(join(tmpdir(),'glue-lock-'));t.after(()=>fs.rmSync(workspace,{recursive:true,force:true}));return workspace;}
+function fixture(t){const workspace=fs.mkdtempSync(join(fs.realpathSync(tmpdir()),'glue-lock-'));t.after(()=>fs.rmSync(workspace,{recursive:true,force:true}));return workspace;}
 // step 'unlinkSync' keeps owner.json; step 'rmdirSync' removes owner.json and keeps the empty lock directory.
 function withLockRemovalDenied(run,step='unlinkSync',code='EPERM'){
  const original=fs[step],target=step==='unlinkSync'?join('.write-lock','owner.json'):'.write-lock';

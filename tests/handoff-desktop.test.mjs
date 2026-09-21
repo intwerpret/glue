@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, existsSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, realpathSync, mkdirSync, readFileSync, readdirSync, rmSync, existsSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
@@ -8,7 +8,7 @@ import { packageClaudeDesktop } from '../scripts/package-claude-desktop.mjs';
 import { collectFiles, fingerprint } from '../scripts/installation-files.mjs';
 
 function fixture(t) {
-  const root = mkdtempSync(join(tmpdir(), 'glue-desktop-'));
+  const root = mkdtempSync(join(realpathSync(tmpdir()), 'glue-desktop-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const project = join(root, 'Selected project é'), other = join(root, 'Unselected');
   mkdirSync(project); mkdirSync(other);

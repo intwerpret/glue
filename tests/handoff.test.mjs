@@ -22,7 +22,7 @@ function mcpRun(workspace,options){
  return child;
 }
 
-function fixture(t){const workspace=mkdtempSync(join(tmpdir(),'glue-handoff-test-'));t.after(()=>rmSync(workspace,{recursive:true,force:true}));return {workspace,store:new Handoffs(workspace)};}
+function fixture(t){const workspace=mkdtempSync(join(fs.realpathSync(tmpdir()),'glue-handoff-test-'));t.after(()=>rmSync(workspace,{recursive:true,force:true}));return {workspace,store:new Handoffs(workspace)};}
 function failRename(t,target){
  const original=fs.renameSync;
  fs.renameSync=(from,to)=>{if(to===target)throw new Error('Injected rename failure');return original(from,to);};

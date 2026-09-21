@@ -1,13 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtempSync,rmSync,mkdirSync,writeFileSync,readFileSync,existsSync,readdirSync,cpSync} from 'node:fs';
+import {mkdtempSync, realpathSync,rmSync,mkdirSync,writeFileSync,readFileSync,existsSync,readdirSync,cpSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join,resolve} from 'node:path';
 import {spawnSync} from 'node:child_process';
 import {collectFiles} from '../scripts/installation-files.mjs';
 import {runtimeModules} from '../scripts/runtime-files.mjs';
 const root=resolve('.');
-function fixture(t){const workspace=mkdtempSync(join(tmpdir(),'glue-install-test-'));t.after(()=>rmSync(workspace,{recursive:true,force:true}));return workspace;}
+function fixture(t){const workspace=mkdtempSync(join(realpathSync(tmpdir()),'glue-install-test-'));t.after(()=>rmSync(workspace,{recursive:true,force:true}));return workspace;}
 function run(args,input){return spawnSync(process.execPath,args,{cwd:root,input,encoding:'utf8',windowsHide:true});}
 function node(args,input){
  const mcp=/[\\/]runtime[\\/]mcp\.js$/.test(args[0]);

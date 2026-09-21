@@ -1,13 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, rmSync, rmdirSync, readFileSync, writeFileSync, existsSync, readdirSync } from 'node:fs';
+import { mkdtempSync, realpathSync, mkdirSync, rmSync, rmdirSync, readFileSync, writeFileSync, existsSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 const installer = resolve('install.mjs');
 function fixture(t) {
-  const project = mkdtempSync(join(tmpdir(), 'glue-easy-install-'));
+  const project = mkdtempSync(join(realpathSync(tmpdir()), 'glue-easy-install-'));
   t.after(() => rmSync(project, { recursive: true, force: true }));
   return project;
 }

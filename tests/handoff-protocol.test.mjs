@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, realpathSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -12,7 +12,7 @@ const initialize = (id = 'initialize', protocolVersion = '2025-11-25') => ({
 const ready = { jsonrpc: '2.0', method: 'notifications/initialized' };
 const request = (id, method, params) => ({ jsonrpc: '2.0', id, method, ...(params === undefined ? {} : { params }) });
 function fixture(t) {
-  const workspace = mkdtempSync(join(tmpdir(), 'glue-protocol-'));
+  const workspace = mkdtempSync(join(realpathSync(tmpdir()), 'glue-protocol-'));
   t.after(() => rmSync(workspace, { recursive: true, force: true }));
   const run = messages => {
     const input = messages.map(value => typeof value === 'string' ? value : JSON.stringify(value)).join('\n') + '\n';

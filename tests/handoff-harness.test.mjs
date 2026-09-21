@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, existsSync, mkdirSync, writeFileSync, readdirSync, readFileSync as require_read } from 'node:fs';
+import { mkdtempSync, realpathSync, rmSync, existsSync, mkdirSync, writeFileSync, readdirSync, readFileSync as require_read } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -9,7 +9,7 @@ import { Knowledge } from '../dist/knowledge.js';
 import { Transfers } from '../dist/transfer.js';
 
 function fixture(t, prefix = 'glue-test-') {
-  const workspace = mkdtempSync(join(tmpdir(), prefix));
+  const workspace = mkdtempSync(join(realpathSync(tmpdir()), prefix));
   t.after(() => rmSync(workspace, { recursive: true, force: true }));
   const store = new Handoffs(workspace);
   return { workspace, store, knowledge: new Knowledge(store), transfers: new Transfers(store) };

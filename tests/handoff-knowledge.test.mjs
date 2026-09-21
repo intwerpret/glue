@@ -1,12 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtempSync,writeFileSync,readFileSync,rmSync,unlinkSync,mkdirSync,renameSync,symlinkSync,rmdirSync} from 'node:fs';
+import {mkdtempSync, realpathSync,writeFileSync,readFileSync,rmSync,unlinkSync,mkdirSync,renameSync,symlinkSync,rmdirSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {Handoffs,hash} from '../dist/handoff.js';
 import {Knowledge} from '../dist/knowledge.js';
 
-function fixture(t){const workspace=mkdtempSync(join(tmpdir(),'glue-knowledge-'));t.after(()=>rmSync(workspace,{recursive:true,force:true}));const store=new Handoffs(workspace);return {workspace,store,knowledge:new Knowledge(store)};}
+function fixture(t){const workspace=mkdtempSync(join(realpathSync(tmpdir()),'glue-knowledge-'));t.after(()=>rmSync(workspace,{recursive:true,force:true}));const store=new Handoffs(workspace);return {workspace,store,knowledge:new Knowledge(store)};}
 const unavailableContext=(workspace,context)=>{const dir=join(workspace,'.glue/contexts',hash(context));mkdirSync(join(dir,'revisions'),{recursive:true});writeFileSync(join(dir,'.initialized'),'Glue handoff initialized\n');};
 const record=(title)=>({title,kind:'finding',scope:'This project; one historical experiment, not a general product claim.',provenance:'source',status:'active'});
 const save=(store,context,markdown,extra={})=>store.save({context,markdown,expectedVersion:null,...extra});
