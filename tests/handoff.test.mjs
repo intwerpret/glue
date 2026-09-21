@@ -8,6 +8,7 @@ import {join,resolve} from 'node:path';
 import {spawn,spawnSync} from 'node:child_process';
 import {pathToFileURL} from 'node:url';
 import {Handoffs,hash} from '../dist/handoff.js';
+import {Knowledge} from '../dist/knowledge.js';
 import {collectFiles} from '../scripts/installation-files.mjs';
 
 const protocolStart = [
@@ -499,4 +500,65 @@ test('nested metadata directories, filesystem aliases and host instruction files
   assert.throws(()=>store.save({context:'notes/alias.md',expectedVersion:null,markdown:'# Alias',evidence:['LONGDI~1/source.txt']}),/ambiguous/);
   assert.throws(()=>store.save({context:'LONGDI~1/alias.md',expectedVersion:null,markdown:'# Alias',evidence:[]}),/ambiguous/);
  }
+});
+
+test('readers retry an unfinished first save and read it normally after publication',t=>{
+ const {workspace,store}=fixture(t),request=first(),loc=store.location(request.context),reader=new Handoffs(workspace),knowledge=new Knowledge(reader);
+ const original=fs.renameSync;let observed=false;
+ try {
+  fs.renameSync=(from,to)=>{
+   if(to===loc.head){
+    observed=true;assert.equal(existsSync(join(loc.directory,'.initialized')),true);assert.equal(existsSync(loc.head),false);
+    const before=collectFiles(workspace);
+    assert.throws(()=>reader.resume({context:request.context}),error=>error.code==='EEXIST'&&error.retryable===true&&/busy/.test(error.message));
+    const page=knowledge.find({});assert.equal(page.gaps[0].reason,'busy');assert.equal('context' in page.gaps[0],false);
+    const child=mcpRun(workspace,{input:JSON.stringify({jsonrpc:'2.0',id:1,method:'tools/call',params:{name:'glue_resume',arguments:{context:request.context}}})+'\n',encoding:'utf8',timeout:10000});
+    assert.equal(child.status,0,child.stderr);const response=JSON.parse(child.stdout);
+    assert.equal(response.result.isError,true);assert.match(response.result.content[0].text,/Glue store is busy/);assert.doesNotMatch(response.result.content[0].text,/explicit recovery/);
+    assert.equal(response.result.content[0].text.includes(workspace),false);assert.deepEqual(collectFiles(workspace),before);
+   }
+   return original(from,to);
+  };syncBuiltinESMExports();
+  assert.equal(store.save(request).committed,true);
+ } finally {fs.renameSync=original;syncBuiltinESMExports();}
+ assert.equal(observed,true);assert.equal(reader.resume({context:request.context}).markdown,request.markdown);
+ assert.equal(knowledge.find({}).results.length,1);assert.deepEqual(knowledge.find({}).gaps,[]);
+});
+
+test('readers recheck a HEAD published during missing-pointer observations',t=>{
+ const {workspace,store}=fixture(t),request=first(),saved=store.save(request),loc=store.location(request.context),knowledge=new Knowledge(store);
+ mkdirSync(join(loc.directory,'.write-lock'));const before=collectFiles(workspace),original=fs.existsSync;
+ for(const read of [()=>store.resume({context:request.context}).version,()=>knowledge.find({}).results[0].version]){
+  let firstCheck=true;
+  try {
+   fs.existsSync=file=>{if(file===loc.head&&firstCheck){firstCheck=false;return false;}return original(file);};syncBuiltinESMExports();
+   assert.equal(read(),saved.version);assert.equal(firstCheck,false);
+  } finally {fs.existsSync=original;syncBuiltinESMExports();}
+ }
+ assert.equal(store.resume({context:request.context}).version,saved.version);assert.deepEqual(collectFiles(workspace),before);
+});
+
+test('an interrupted first save keeps its lock and history until explicit recovery',t=>{
+ const {workspace,store}=fixture(t),request=first(),loc=store.location(request.context);
+ const harness=`
+  import fs from 'node:fs';import {syncBuiltinESMExports} from 'node:module';
+  const {Handoffs}=await import(${JSON.stringify(new URL('../dist/handoff.js',import.meta.url).href)});
+  const store=new Handoffs(process.argv[1]),request=${JSON.stringify(request)},loc=store.location(request.context),original=fs.renameSync;
+  fs.renameSync=(from,to)=>{if(to===loc.head)process.exit(0);return original(from,to);};syncBuiltinESMExports();
+  store.save(request);process.exit(9);
+ `;
+ const child=spawnSync(process.execPath,['--input-type=module','-e',harness,workspace],{encoding:'utf8',windowsHide:true,timeout:10000});
+ assert.equal(child.status,0,child.stderr);const lock=join(loc.directory,'.write-lock');
+ assert.equal(existsSync(lock),true);assert.equal(existsSync(join(loc.directory,'.initialized')),true);assert.equal(existsSync(loc.head),false);
+ const before=collectFiles(workspace),knowledge=new Knowledge(store);
+ assert.throws(()=>store.resume({context:request.context}),error=>error.code==='EEXIST'&&error.retryable===true);
+ assert.equal(knowledge.find({}).gaps[0].reason,'busy');assert.throws(()=>store.save(request),error=>error.code==='EEXIST');assert.deepEqual(collectFiles(workspace),before);
+ // The child has exited; validate the exact fixture lock before operator removal.
+ assert.equal(fs.realpathSync(lock),join(fs.realpathSync(workspace),'.glue','contexts',hash(request.context),'.write-lock'));
+ rmSync(lock,{recursive:true});const preserved=collectFiles(workspace);
+ assert.throws(()=>store.resume({context:request.context}),/HEAD is missing/);assert.equal(knowledge.find({}).gaps[0].reason,'missing_head');
+ assert.throws(()=>store.save(request),/HEAD is missing/);assert.deepEqual(collectFiles(workspace),preserved);
+ const inspection=store.inspect(request.context);assert.equal(inspection.revisions.length,1);assert.equal(inspection.revisions[0].valid,true);
+ assert.equal(store.restore(request.context,inspection.revisions[0].version,inspection.headHash,inspection.workingCopyHash).restored,true);
+ assert.equal(store.resume({context:request.context}).markdown,request.markdown);
 });

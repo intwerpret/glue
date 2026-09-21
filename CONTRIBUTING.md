@@ -1,6 +1,6 @@
 # Contributing
 
-Glue is a pre-release. Issues and pull requests are welcome. Glue is licensed under [Apache-2.0](LICENSE), and contributions are accepted under the same license.
+Glue is a pre-release. Issues and pull requests are welcome. Everyone taking part is expected to follow the [Code of Conduct](CODE_OF_CONDUCT.md). Glue is licensed under [Apache-2.0](LICENSE), and contributions are accepted under the same license.
 
 Sign off every commit (`git commit -s`). The `Signed-off-by` line certifies the [Developer Certificate of Origin](https://developercertificate.org/): that you wrote the change or otherwise have the right to submit it under the project's license.
 

@@ -82,11 +82,19 @@ export class Handoffs {
     if (hash(bytes) !== version) throw Error('Revision integrity failure. Use explicit recovery; history was not reset.');
     return stored(revisionSchema, bytes, 'a revision');
   }
-  head(context: string) {
+  head(context: string, writeLockHeld = false) {
     const loc = this.location(context);
     if (!existsSync(loc.head)) {
-      if (existsSync(join(loc.directory, '.initialized'))) throw Error('Saved HEAD is missing. Use explicit recovery; history was not reset.');
-      return { ...loc, version: null, saved: null };
+      const initialized = existsSync(join(loc.directory, '.initialized'));
+      const lock = join(loc.directory, '.write-lock');
+      const busy = !writeLockHeld && existsSync(lock);
+      // A first writer may publish HEAD while these observations are being made.
+      if (!existsSync(loc.head)) {
+        if (busy) throw Object.assign(new Error('Glue store is busy. Retry the same request; inspect the writer lock only if the writer has stopped.'),
+          { code: 'EEXIST', path: lock, retryable: true });
+        if (initialized) throw Error('Saved HEAD is missing. Use explicit recovery; history was not reset.');
+        return { ...loc, version: null, saved: null };
+      }
     }
     const parsed = stored(headSchema, read(loc.head), 'HEAD.json');
     const saved = this.revision(loc.directory, parsed.version);
@@ -226,7 +234,8 @@ export class Handoffs {
   }
   private commit(request: z.infer<typeof commitInput>, loc: ReturnType<Handoffs['location']>, selected: string[] | undefined,
     suppliedCaptures: ReturnType<typeof prepareCapture>[] | undefined, key: string) {
-    const head = this.head(request.context);
+    // Our own lock must not disguise initialized history with a missing HEAD.
+    const head = this.head(request.context, true);
     // A request against HEAD is new work. Older requests may be committed retries.
     if (request.expectedVersion !== head.version) {
       // Only committed ancestors qualify; orphaned pre-commit revisions do not.

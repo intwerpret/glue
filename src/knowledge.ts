@@ -178,9 +178,13 @@ export class Knowledge {
         const dir = join(directory, id), pointer = join(dir, 'HEAD.json'); assertUnlinked(pointer);
         if (!existsSync(pointer)) {
           const entries = readdirSync(dir);
-          if (entries.length === 0) { gaps.push({ contextId: id, reason: 'empty_directory', note: 'No saved bytes: remnant of a failed first save. Nothing is lost; it may be removed by explicit maintenance.' }); continue; }
-          if (!entries.includes('.initialized') && !entries.includes('revisions')) { gaps.push({ contextId: id, reason: 'uninitialized', note: 'No committed revision and no history marker.' }); continue; }
-          gaps.push({ contextId: id, reason: 'missing_head', note: 'History exists but the saved HEAD pointer is missing. Use explicit recovery; nothing was reset.' }); continue;
+          // Let a newly published pointer take the normal integrity-validation path.
+          if (!existsSync(pointer)) {
+            if (entries.includes('.write-lock')) { gaps.push({ contextId: id, reason: 'busy', note: 'A writer lock is present without a saved HEAD. Retry; inspect the lock only after confirming no writer is active.' }); continue; }
+            if (entries.length === 0) { gaps.push({ contextId: id, reason: 'empty_directory', note: 'No saved bytes: remnant of a failed first save. Nothing is lost; it may be removed by explicit maintenance.' }); continue; }
+            if (!entries.includes('.initialized') && !entries.includes('revisions')) { gaps.push({ contextId: id, reason: 'uninitialized', note: 'No committed revision and no history marker.' }); continue; }
+            gaps.push({ contextId: id, reason: 'missing_head', note: 'History exists but the saved HEAD pointer is missing. Use explicit recovery; nothing was reset.' }); continue;
+          }
         }
         if (statSync(pointer).size > 4096) throw Error('Oversize head');
         const version = digest.parse(JSON.parse(readFileSync(pointer, 'utf8')).version);
