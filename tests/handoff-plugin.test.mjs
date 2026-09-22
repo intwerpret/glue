@@ -28,7 +28,16 @@ function run(plugin, project, cwd, request) {
 
 test('plugin package has reviewed components, relocatable paths and verifiable inventory', t => {
   const { plugin, root } = fixture(t), receipt = packageClaudeCode(plugin);
-  assert.deepEqual(Object.keys(JSON.parse(readFileSync(join(plugin, '.claude-plugin/plugin.json')))).sort(), ['description', 'name', 'version']);
+  const sourcePackage = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+  const metadata = JSON.parse(readFileSync(join(plugin, '.claude-plugin/plugin.json')));
+  assert.deepEqual(metadata, {
+    name: 'glue', version: sourcePackage.version,
+    description: 'Continue and deliberately reuse selected project work with retained evidence.',
+    author: { name: sourcePackage.author },
+    homepage: sourcePackage.homepage,
+    repository: 'https://github.com/intwerpret/glue',
+    license: sourcePackage.license,
+  });
   const config = JSON.parse(readFileSync(join(plugin, '.mcp.json')));
   assert.deepEqual(config.mcpServers.glue, { command: 'node', args: ['${CLAUDE_PLUGIN_ROOT}/server.mjs'] });
   const files = collectFiles(plugin);
@@ -95,6 +104,7 @@ test('marketplace package lists the packaged plugin by relative source and ships
   assert.equal(manifest.plugins[0].version, receipt.version);
   const plugin = JSON.parse(readFileSync(join(output, 'plugins', 'glue', '.claude-plugin', 'plugin.json'), 'utf8'));
   assert.equal(plugin.name, manifest.plugins[0].name);
+  assert.equal(plugin.author.name, 'Synthetic fixture owner');
   for (const file of ['LICENSE', 'NOTICE', 'plugins/glue/LICENSE', 'plugins/glue/server.mjs']) assert.ok(existsSync(join(output, file)), file);
   assert.equal(readFileSync(join(output, 'README.md'), 'utf8').includes(root), false);
   assert.throws(() => packageMarketplace(output, 'Synthetic fixture owner'), /already exists/);

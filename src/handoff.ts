@@ -1,5 +1,5 @@
-import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, rmdirSync, statSync, openSync, closeSync, fsyncSync, realpathSync } from 'node:fs';
+import { createHash, randomUUID } from 'node:crypto';
+import { existsSync, mkdirSync, writeFileSync, readdirSync, rmdirSync, openSync, closeSync, fsyncSync, fstatSync, readSync, linkSync, unlinkSync, realpathSync } from 'node:fs';
 import { relative, join, dirname, extname } from 'node:path';
 import { z } from 'zod';
 import { assertUnlinked, withWriteLock, atomicWrite } from './storage.js';
@@ -39,17 +39,41 @@ function stored<T>(schema: z.ZodType<T>, bytes: Buffer, name: string): T {
 }
 function read(file: string, max = limit) {
   assertUnlinked(file);
-  const stat = statSync(file);
-  if (!stat.isFile() || stat.size > max) throw Error('Expected a regular file within the size limit: ' + file);
-  const bytes = readFileSync(file);
-  if (bytes.length > max) throw Error('File grew beyond the size limit: ' + file);
-  return bytes;
+  const fd = openSync(file, 'r');
+  try {
+    const stat = fstatSync(fd);
+    if (!stat.isFile() || stat.size > max) throw Error('Expected a regular file within the size limit: ' + file);
+    // Read through one descriptor and at most one byte beyond the observed size.
+    // A replaced or growing file cannot turn a bounded read into a large allocation.
+    const bytes = Buffer.allocUnsafe(stat.size + 1);
+    let size = 0;
+    while (size < bytes.length) {
+      const count = readSync(fd, bytes, size, bytes.length - size, null);
+      if (!count) break;
+      size += count;
+    }
+    if (size !== stat.size) throw Error('File changed during read: ' + file);
+    return bytes.subarray(0, size);
+  } finally { closeSync(fd); }
 }
 function immutable(file: string, bytes: Buffer | string) {
   assertUnlinked(file);
-  if (existsSync(file)) { if (!readFileSync(file).equals(Buffer.from(bytes))) throw Error('Immutable bytes differ: ' + file); return; }
-  const fd = openSync(file, 'wx', 0o600);
-  try { writeFileSync(fd, bytes); fsyncSync(fd); } finally { closeSync(fd); }
+  const expected = Buffer.from(bytes);
+  const verifyExisting = () => { if (!read(file, expected.length).equals(expected)) throw Error('Immutable bytes differ: ' + file); };
+  if (existsSync(file)) { verifyExisting(); return; }
+  // Prepare complete bytes under a private name. Publishing a hard link is
+  // atomic and refuses to replace an immutable file another writer created.
+  const temporary = file + '.' + randomUUID() + '.tmp';
+  assertUnlinked(temporary);
+  const fd = openSync(temporary, 'wx', 0o600);
+  try {
+    try { writeFileSync(fd, expected); fsyncSync(fd); } finally { closeSync(fd); }
+    try { linkSync(temporary, file); }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+      verifyExisting();
+    }
+  } finally { unlinkSync(temporary); }
 }
 export class Handoffs {
   readonly workspace: string;

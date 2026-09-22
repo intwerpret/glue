@@ -26,8 +26,25 @@ export function acquireLock(directory: string, name: string, message: string) {
       : "Glue could not create its lock directory: " + (error instanceof Error ? error.message : String(error));
     throw Object.assign(new Error(detail, { cause: error }), { code, path: lock, retryable: code === "EEXIST" });
   }
-  try { writeFileSync(owner, JSON.stringify({ pid: process.pid, startedAt: new Date().toISOString() }), { flag: "wx", mode: 0o600 }); }
-  catch (error) { rmdirSync(lock); throw error; }
+  let descriptor: number | undefined, ownerCreated = false;
+  try {
+    descriptor = openSync(owner, "wx", 0o600);
+    ownerCreated = true;
+    writeFileSync(descriptor, JSON.stringify({ pid: process.pid, startedAt: new Date().toISOString() }));
+    const completed = descriptor;
+    descriptor = undefined;
+    closeSync(completed);
+  } catch (error) {
+    // A write can fail after creating owner.json. Only remove it if our exclusive open succeeded.
+    // Cleanup must not replace the original write/open failure.
+    let cleanupFailed = false;
+    if (descriptor !== undefined) { try { closeSync(descriptor); } catch { cleanupFailed = true; } }
+    if (ownerCreated) { try { unlinkSync(owner); } catch { cleanupFailed = true; } }
+    try { rmdirSync(lock); } catch { cleanupFailed = true; }
+    if (cleanupFailed && error instanceof Error)
+      Object.assign(error, { lockNotReleased: "Glue could not clean up its lock after owner creation failed. Inspect the lock before another write." });
+    throw error;
+  }
   let released = false;
   // Never throws: callers release in finally, where a throw would replace the outcome of the work the lock protected.
   // One attempt only. A lock this call failed to remove may later belong to another writer.

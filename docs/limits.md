@@ -14,6 +14,10 @@ Records may carry title, kind, scope, provenance, status and a replacement refer
 
 Local evidence selects ordinary project files: up to 64, at most 16 MiB each and 64 MiB total. Traversal, symbolic links and junctions, reserved names, unlisted filesystem aliases such as Windows short names, and `.git`, `.codex`, `.agents`, `.claude` and `.glue` directories at any depth are refused. Hard links are not detected. A context is a file Glue writes, so it must also stay outside dot-directories and cannot be a host instruction file such as `AGENTS.md`, `CLAUDE.md` or `SKILL.md`; those files can still be selected as evidence. Omission retains the selected evidence; an empty selection clears the current selection. Earlier copies remain in history.
 
+Path and link checks are not atomic with file opens. A local process that can change project paths concurrently could replace a checked file or parent before Glue reads it. Do not use an untrusted local writer on the same project while Glue is reading or saving evidence.
+
+Publishing complete immutable snapshots requires hard-link support in the project's storage filesystem. A filesystem that refuses same-directory hard links will reject the save without publishing a partial snapshot.
+
 A changed local source requires explicit review and reconciliation, then its observed current hash in `reviewedEvidence`. Another edit before capture rejects that acknowledgment. Acknowledgment records what the caller supplied; it does not prove comprehension, accuracy or authorization.
 
 External material is supplied through authorized host retrieval, not by granting Glue access to an external directory or account. A capture identifies original bytes, extracted text, an excerpt or a derived representation; its basis explains what was retained. Capture IDs and opaque origin metadata are not credentials or private source locators. Keep private resolution details outside portable metadata.

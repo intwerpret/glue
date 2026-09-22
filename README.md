@@ -4,7 +4,7 @@ Keep the context. Continue your work.
 
 Glue is a local [Model Context Protocol](https://modelcontextprotocol.io) server and agent skill that lets an AI coding assistant save a piece of work, find it later, and pick it up again with the evidence behind it. Handoffs stay readable Markdown in your project. Every save is a revision, so corrections and the exact bytes of selected sources are preserved, and declared dependencies show which saved work needs another look when something changes.
 
-> **Status: pre-release (0.5.0-rc.1).** Glue supports Codex, Claude Code and Claude Desktop on Windows, macOS and Linux. See [host setup](integration/glue/references/hosts.md) for what has been exercised on each. Passing local tests do not prove that a particular host version loads the integration.
+> **Status: pre-release (0.5.0-rc.1).** Codex, Claude Code and Claude Desktop have been exercised natively on Windows. Automated tests have passed on Windows and Linux; macOS is in the CI matrix, but no macOS run or host trial has been observed yet. Linux Desktop extension loading is unverified. See [host setup](integration/glue/references/hosts.md) for details. Passing local tests do not prove that a particular host version loads the integration.
 
 ## Contents
 

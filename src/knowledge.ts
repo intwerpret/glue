@@ -101,6 +101,9 @@ export class Knowledge {
       sensitive = capture.sensitive;
       if (sensitive && !request.allowSensitive) refuse();
       body = this.store.captureBytes(node.directory, capture); contentHash = capture.hash;
+      // A newer detector may recognize a secret in a capture saved by an older version.
+      sensitive ||= isSensitive(body, capture.label);
+      if (sensitive && !request.allowSensitive) refuse();
     } else if (request.source !== undefined) {
       const path = this.store.resolvePath(request.source).rel;
       const item = node.saved.evidence.find(item => pathKey(item.path) === pathKey(path));
@@ -125,7 +128,8 @@ export class Knowledge {
     return { context: node.rel, version: node.version, currentVersion: node.currentVersion, parent: node.saved.parent,
       record: node.saved.record ?? null, dependsOn: node.saved.dependsOn ?? [],
       evidence: node.saved.evidence.map(({ path, hash, bytes }) => ({ path, hash, bytes })),
-      captures: node.saved.captures?.map(({ snapshot, ...item }) => ({ ...item, originalFreshness: 'not_checked' })) ?? [],
+      captures: node.saved.captures?.map(({ snapshot, ...item }) => ({ ...item,
+        ...(item.id === request.capture ? { sensitive } : {}), originalFreshness: 'not_checked' })) ?? [],
       imported: node.saved.imported ?? null, capture: request.capture ?? null,
       source: request.source ?? null, hash: contentHash, bytes: body.length, offset: request.offset,
       ...(request.representation !== 'text' || text === undefined ? { base64: part.toString('base64') } : {}),
@@ -214,6 +218,12 @@ export class Knowledge {
           saved = this.store.revision(head.directory, current);
           if (saved.context !== head.rel) throw Error('Context mismatch');
         } catch { gaps.push({ contextId: id, reason: 'revision_unavailable' }); break; }
+        // A filtered-out revision still counts toward scan coverage, but its
+        // support must not consume the evidence budget for eligible records.
+        if (!statusAllowed(saved.record)) {
+          current = request.includeHistory ? saved.parent : null;
+          continue;
+        }
         const metadata = [head.rel, saved.record?.title, saved.record?.scope, saved.markdown].join('\n');
         const matched = terms.length ? [
           ...(matches(head.rel) ? ['context'] : []),
@@ -236,17 +246,21 @@ export class Knowledge {
             sources.push({ path: item.path, hash: item.hash, ...(sensitive ? { sensitive: true, excerptOmitted: 'sensitive' } : {}), ...(text === undefined ? {} : { excerpt: excerpt(text, terms, detail === 'full' ? 480 : 160) }) });
         }
         for (const item of saved.captures ?? []) {
-          let text: string | undefined;
-          if (item.sensitive) { if (terms.length) skippedSensitive++; }
+          let text: string | undefined, sensitive = item.sensitive;
+          if (sensitive) { if (terms.length) skippedSensitive++; }
           else if (terms.length && item.bytes <= 256 * 1024 && searchedEvidenceBytes + item.bytes <= 1024 * 1024) {
             searchedEvidenceBytes += item.bytes;
-            try { text = new TextDecoder('utf-8', { fatal: true }).decode(this.store.captureBytes(head.directory, item)); }
+            try {
+              const bytes = this.store.captureBytes(head.directory, item);
+              if (isSensitive(bytes, item.label)) { sensitive = true; skippedSensitive++; }
+              else text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+            }
             catch { skippedEvidence++; }
           } else if (terms.length) skippedEvidence++;
           if (terms.length && (matches(item.label) || text !== undefined && matches(text)))
-            sources.push({ capture: item.id, label: item.label, hash: item.hash, ...(item.sensitive ? { sensitive: true, excerptOmitted: 'sensitive' } : {}), ...(text === undefined ? {} : { excerpt: excerpt(text, terms, detail === 'full' ? 480 : 160) }) });
+            sources.push({ capture: item.id, label: item.label, hash: item.hash, ...(sensitive ? { sensitive: true, excerptOmitted: 'sensitive' } : {}), ...(text === undefined ? {} : { excerpt: excerpt(text, terms, detail === 'full' ? 480 : 160) }) });
         }
-        if (statusAllowed(saved.record) && (matches(metadata) || sources.length)) {
+        if (matches(metadata) || sources.length) {
           if (detail === 'full') results.push({ context: head.rel, version: current, currentVersion: head.version,
             isHead: current === head.version, at: saved.at, parent: saved.parent, record: saved.record ?? null,
             excerpt: excerpt(saved.markdown, terms), sources: sources.slice(0, 4), moreSourceMatches: Math.max(0, sources.length - 4),

@@ -62,11 +62,44 @@ test('a rejected first save names the lock that now blocks new contexts',t=>{
 });
 
 test('release is attempted once and never throws',t=>{
- const workspace=fixture(t),lock=join(workspace,'.write-lock');
- const release=acquireLock(workspace,'.write-lock','busy');
- assert.match(withLockRemovalDenied(()=>release()),/EPERM/);
- assert.equal(release(),undefined);
- assert.ok(fs.existsSync(join(lock,'owner.json')));
+  const workspace=fixture(t),lock=join(workspace,'.write-lock');
+  const release=acquireLock(workspace,'.write-lock','busy');
+  assert.match(withLockRemovalDenied(()=>release()),/EPERM/);
+  assert.equal(release(),undefined);
+  assert.ok(fs.existsSync(join(lock,'owner.json')));
+});
+
+test('a partial owner write preserves its error and leaves no stale lock',t=>{
+  const workspace=fixture(t),owner=join(workspace,'.write-lock','owner.json');
+  const originalOpen=fs.openSync,originalWrite=fs.writeFileSync;
+  const failure=Object.assign(new Error('owner write failed'),{code:'ENOSPC'});
+  let ownerDescriptor;
+  try {
+    fs.openSync=(file,...args)=>{const fd=originalOpen(file,...args);if(file===owner)ownerDescriptor=fd;return fd;};
+    fs.writeFileSync=(file,bytes,...args)=>{
+      if(file===ownerDescriptor){originalWrite(file,'{');throw failure;}
+      return originalWrite(file,bytes,...args);
+    };
+    syncBuiltinESMExports();
+    assert.throws(()=>acquireLock(workspace,'.write-lock','busy'),error=>error===failure);
+  } finally {fs.openSync=originalOpen;fs.writeFileSync=originalWrite;syncBuiltinESMExports();}
+  assert.deepEqual(fs.readdirSync(workspace),[]);
+  const release=acquireLock(workspace,'.write-lock','busy');
+  assert.equal(release(),undefined);
+});
+
+test('owner creation collision preserves a file this call did not create',t=>{
+  const workspace=fixture(t),owner=join(workspace,'.write-lock','owner.json');
+  const originalOpen=fs.openSync;
+  try {
+    fs.openSync=(file,flags,...args)=>{
+      if(file===owner){const fd=originalOpen(file,'wx',...args);fs.writeFileSync(fd,'other owner');fs.closeSync(fd);}
+      return originalOpen(file,flags,...args);
+    };
+    syncBuiltinESMExports();
+    assert.throws(()=>acquireLock(workspace,'.write-lock','busy'),error=>error.code==='EEXIST'&&/clean up its lock/.test(error.lockNotReleased));
+  } finally {fs.openSync=originalOpen;syncBuiltinESMExports();}
+  assert.equal(fs.readFileSync(owner,'utf8'),'other owner');
 });
 
 test('a namespace lock left by the first transfer does not block later transfers',t=>{
@@ -93,11 +126,11 @@ test('installation lock releases after operation or owner creation failure',t=>{
  const workspace=fixture(t),failure=new Error('operation failed');
  assert.throws(()=>withInstallationLock(workspace,()=>{throw failure;}),error=>error===failure);
  assert.deepEqual(fs.readdirSync(workspace),[]);
- const original=fs.writeFileSync,denied=Object.assign(new Error('owner denied'),{code:'EACCES'});
+ const original=fs.openSync,denied=Object.assign(new Error('owner denied'),{code:'EACCES'});
  try {
-  fs.writeFileSync=(file,...args)=>{if(file===join(workspace,'.glue-install-lock/owner.json'))throw denied;return original(file,...args);};syncBuiltinESMExports();
+  fs.openSync=(file,...args)=>{if(file===join(workspace,'.glue-install-lock/owner.json'))throw denied;return original(file,...args);};syncBuiltinESMExports();
   assert.throws(()=>withInstallationLock(workspace,()=>assert.fail('operation ran without owner')),error=>error===denied);
- } finally {fs.writeFileSync=original;syncBuiltinESMExports();}
+ } finally {fs.openSync=original;syncBuiltinESMExports();}
  assert.deepEqual(fs.readdirSync(workspace),[]);
  assert.equal(withInstallationLock(workspace,()=>true),true);
 });

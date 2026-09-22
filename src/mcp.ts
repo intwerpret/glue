@@ -137,7 +137,8 @@ async function* inputChunks(input: NodeJS.ReadableStream, aborted: AbortSignal):
 // Bound bytes before a newline arrives; readline would accumulate an unlimited line first.
 async function* requests(input: NodeJS.ReadableStream, aborted: AbortSignal) {
   // An oversized line is discarded up to its newline and reported as null, so the connection survives.
-  let pending = Buffer.alloc(0), oversized = false;
+  const maximumLineBytes = 2 * 1024 * 1024;
+  let pending = Buffer.alloc(0), pendingBytes = 0, oversized = false;
   for await (const chunk of inputChunks(input, aborted)) {
     const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
     let start = 0;
@@ -145,15 +146,27 @@ async function* requests(input: NodeJS.ReadableStream, aborted: AbortSignal) {
       if (aborted.aborted) return;
       const newline = bytes.indexOf(10, start);
       const end = newline < 0 ? bytes.length : newline;
-      if (oversized || pending.length + end - start > 2 * 1024 * 1024) { oversized = true; pending = Buffer.alloc(0); }
-      else pending = Buffer.concat([pending, bytes.subarray(start, end)]);
+      const required = pendingBytes + end - start;
+      if (oversized || required > maximumLineBytes) {
+        oversized = true; pending = Buffer.alloc(0); pendingBytes = 0;
+      } else if (end > start) {
+        if (required > pending.length) {
+          // Grow geometrically so small input fragments cannot cause quadratic copying.
+          const grown = Buffer.allocUnsafe(Math.min(maximumLineBytes, Math.max(1024, pending.length * 2, required)));
+          pending.copy(grown, 0, 0, pendingBytes);
+          pending = grown;
+        }
+        bytes.copy(pending, pendingBytes, start, end);
+        pendingBytes = required;
+      }
       if (newline < 0) break;
-      yield oversized ? null : pending;
-      pending = Buffer.alloc(0); oversized = false; start = newline + 1;
+      const line = oversized ? null : pending.subarray(0, pendingBytes);
+      pending = Buffer.alloc(0); pendingBytes = 0; oversized = false; start = newline + 1;
+      yield line;
     }
   }
   if (aborted.aborted) return;
-  if (oversized) yield null; else if (pending.length) yield pending;
+  if (oversized) yield null; else if (pendingBytes) yield pending.subarray(0, pendingBytes);
 }
 
 export async function serveMcp(workspace: string) {

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {mkdtempSync, realpathSync,writeFileSync,readFileSync,rmSync,unlinkSync,mkdirSync,renameSync,symlinkSync,rmdirSync} from 'node:fs';
 import {tmpdir} from 'node:os';
-import {join} from 'node:path';
+import {basename,join} from 'node:path';
 import {Handoffs,hash} from '../dist/handoff.js';
 import {Knowledge} from '../dist/knowledge.js';
 
@@ -56,6 +56,27 @@ test('search continuation covers revisions without duplicates, rejects stale cur
  store.save({context:'a.md',expectedVersion:receipt.version,markdown:'needle 4'});
  assert.throws(()=>knowledge.find({query:'needle',includeHistory:true,cursor:page.next}),/head changed/);
  assert.ok(knowledge.read({context:'a.md',source:'large.txt',offset:299990,limit:100}).text.includes('secretneedle'));
+});
+
+test('status-filtered records do not exhaust the evidence budget before an eligible match',t=>{
+ const {workspace,store,knowledge}=fixture(t);
+ const target='included-target.md',targetId=basename(store.location(target).directory);
+ let excluded;
+ for(let i=0;i<1000;i++){
+  const candidate=`excluded-${String(i).padStart(3,'0')}.md`;
+  if(basename(store.location(candidate).directory)<targetId){excluded=candidate;break;}
+ }
+ assert.ok(excluded);
+ const ballast='b'.repeat(230*1024),term='filteredbudgetnarwhal';
+ for(let i=0;i<4;i++)writeFileSync(join(workspace,`ballast-${i}.txt`),ballast);
+ writeFileSync(join(workspace,'target.txt'),'t'.repeat(230*1024-term.length)+term);
+ save(store,excluded,'Withdrawn',{record:{...record('Excluded'),status:'withdrawn'},evidence:[0,1,2,3].map(i=>`ballast-${i}.txt`)});
+ save(store,target,'Active',{record:record('Included'),evidence:['target.txt']});
+ const result=knowledge.find({query:term,status:['active'],detail:'full'});
+ assert.equal(result.scannedRevisions,2);
+ assert.deepEqual(result.results.map(item=>item.context),[target]);
+ assert.equal(result.skippedEvidenceBodies,0);
+ assert.equal(result.next,null);
 });
 
 test('knowledge reads reject orphan versions and corrupt snapshots; supersession remains explicit',t=>{

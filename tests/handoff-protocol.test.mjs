@@ -298,3 +298,41 @@ test('an oversized request line is refused without ending the connection', t => 
   assert.deepEqual(responses[2].result, {});
   assert.deepEqual(readdirSync(workspace), []);
 });
+
+test('MCP handles tiny input fragments with bounded copying and recovers after a fragmented oversized line', t => {
+  const { workspace } = fixture(t);
+  const harness = `
+    import assert from 'node:assert/strict';
+    import { Readable } from 'node:stream';
+    const lines = [
+      ${JSON.stringify(JSON.stringify(initialize()))},
+      ${JSON.stringify(JSON.stringify(ready))},
+      JSON.stringify({ jsonrpc: '2.0', id: 'near', method: 'ping', params: { pad: 'x'.repeat(256 * 1024) } }),
+      JSON.stringify({ jsonrpc: '2.0', id: 'large', method: 'ping', params: { pad: 'x'.repeat(2 * 1024 * 1024) } }),
+      JSON.stringify({ jsonrpc: '2.0', id: 'after', method: 'ping' }),
+    ];
+    const input = Buffer.from(lines.join(String.fromCharCode(10)) + String.fromCharCode(10));
+    function* fragments() {
+      for (let offset = 0; offset < input.length; offset += 1024) yield input.subarray(offset, offset + 1024);
+    }
+    Object.defineProperty(process, 'stdin', { value: Readable.from(fragments()) });
+    const originalConcat = Buffer.concat;
+    let repeatedCopyBytes = 0;
+    Buffer.concat = function(parts, length) {
+      if (parts.length === 2 && parts[0].length >= 1024 && parts[1].length <= 1024)
+        repeatedCopyBytes += parts[0].length;
+      return originalConcat.call(Buffer, parts, length);
+    };
+    const { serveMcp } = await import(${JSON.stringify(new URL('../dist/mcp.js', import.meta.url).href)});
+    await serveMcp(process.argv[1]);
+    assert.ok(repeatedCopyBytes < 16 * 1024 * 1024, 'Input framing repeatedly copied prior fragments');
+  `;
+  const child = spawnSync(process.execPath, ['--input-type=module', '-e', harness, workspace], { encoding: 'utf8', windowsHide: true, timeout: 10000 });
+  assert.equal(child.status, 0, child.stderr);
+  const responses = child.stdout.trim().split('\n').map(JSON.parse);
+  assert.deepEqual(responses.map(response => response.id), ['initialize', 'near', null, 'after']);
+  assert.deepEqual(responses[1].result, {});
+  assert.equal(responses[2].error.code, -32600);
+  assert.deepEqual(responses[3].result, {});
+  assert.deepEqual(readdirSync(workspace), []);
+});

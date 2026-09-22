@@ -71,6 +71,41 @@ test('evidence review rejects a second edit atomically and exact retries retain 
  assert.throws(()=>store.save({...request,expectedVersion:b.version,evidence:[]}),/selected evidence/);
  assert.throws(()=>store.save({...request,expectedVersion:b.version,reviewedEvidence:[request.reviewedEvidence[0],request.reviewedEvidence[0]]}),/at most once/);
 });
+
+test('a partial immutable write cannot poison the final snapshot or block an identical retry',t=>{
+ const {workspace,store}=fixture(t),body=Buffer.from('source bytes for a partial write');
+ writeFileSync(join(workspace,'source.txt'),body);
+ const request={...first(),evidence:['source.txt']};
+ const original=fs.writeFileSync;let injected=false;
+ try {
+  fs.writeFileSync=(file,bytes,...args)=>{
+   if(!injected && typeof file==='number' && Buffer.isBuffer(bytes) && bytes.equals(body)){
+    injected=true;original(file,bytes.subarray(0,4));throw Error('Injected partial immutable write');
+   }
+   return original(file,bytes,...args);
+  };
+  syncBuiltinESMExports();
+  assert.throws(()=>store.save(request),/Injected partial immutable write/);
+ } finally {fs.writeFileSync=original;syncBuiltinESMExports();}
+ assert.equal(injected,true);
+ const loc=store.location(request.context),snapshot=join(loc.directory,'evidence',hash(body)+'.txt');
+ assert.equal(existsSync(snapshot),false);
+ assert.equal(store.inspect(request.context).revisions.length,0);
+ const retry=store.save(request);
+ assert.equal(retry.committed,true);
+ assert.deepEqual(readFileSync(snapshot),body);
+});
+
+test('an oversized preexisting immutable file is refused before comparison',t=>{
+ const {workspace,store}=fixture(t),body=Buffer.from('expected source');
+ writeFileSync(join(workspace,'source.txt'),body);
+ const request={...first(),evidence:['source.txt']},loc=store.location(request.context);
+ const evidenceDir=join(loc.directory,'evidence');mkdirSync(evidenceDir,{recursive:true});
+ const snapshot=join(evidenceDir,hash(body)+'.txt');writeFileSync(snapshot,Buffer.alloc(1024*1024));
+ assert.throws(()=>store.save(request),/size limit/);
+ assert.equal(store.inspect(request.context).revisions.length,0);
+ assert.equal(readFileSync(snapshot).length,1024*1024);
+});
 test('retry after intervening commit does not duplicate or overwrite; stale writes fail',t=>{
  const {store}=fixture(t),request=first(),a=store.save(request);
  const b=store.save({context:request.context,expectedVersion:a.version,markdown:'Second checkpoint',evidence:[]});
@@ -299,8 +334,8 @@ test('inspection reads each shared snapshot once, checks every manifest and rech
  for(let i=0;i<20;i++)version=store.save({...request,expectedVersion:version,markdown:'Revision '+i,evidence:['source.txt']}).version;
  const snapshot=store.resume({context:request.context}).evidence[0].snapshot,loc=store.location(request.context);
  const manifest=store.revision(loc.directory,version).evidence[0];
- const read=fs.readFileSync;let reads=0;
- fs.readFileSync=function(file,...args){if(String(file)===snapshot)reads++;return read.call(this,file,...args);};syncBuiltinESMExports();
+ const open=fs.openSync;let reads=0;
+ fs.openSync=function(file,...args){if(String(file)===snapshot && args[0]==='r')reads++;return open.call(this,file,...args);};syncBuiltinESMExports();
  try {
   const view=store.inspect(request.context);assert.ok(view.revisions.every(r=>r.valid));assert.equal(reads,1);
   const checked=new Map();store.verifyEvidence(loc.directory,[manifest],checked);
@@ -310,7 +345,7 @@ test('inspection reads each shared snapshot once, checks every manifest and rech
   // Same byte length ensures the second inspection must check the content hash.
   writeFileSync(snapshot,'SHARED EVIDENCE');reads=0;
   assert.ok(store.inspect(request.context).revisions.every(r=>!r.valid));assert.equal(reads,1);
- } finally {fs.readFileSync=read;syncBuiltinESMExports();}
+ } finally {fs.openSync=open;syncBuiltinESMExports();}
 });
 
 test('inspection reports ancestry and reachability without rereading revisions',t=>{
@@ -464,9 +499,9 @@ test('save and restore preserve unrelated sibling temporary files',t=>{
 
 test('restoring a pre-marker first-save orphan establishes missing-HEAD protection',t=>{
  const {store}=fixture(t),request=first(),loc=store.location(request.context),marker=join(loc.directory,'.initialized');
- const original=fs.openSync;let version;
+ const original=fs.linkSync;let version;
  try {
-  fs.openSync=(file,...args)=>{if(file===marker)throw Error('Injected marker failure');return original(file,...args);};
+  fs.linkSync=(from,to)=>{if(to===marker)throw Error('Injected marker failure');return original(from,to);};
   syncBuiltinESMExports();
   assert.throws(()=>store.save(request),/Injected marker failure/);
   const inspection=store.inspect(request.context);assert.equal(inspection.revisions.length,1);assert.equal(inspection.revisions[0].valid,true);
@@ -474,7 +509,7 @@ test('restoring a pre-marker first-save orphan establishes missing-HEAD protecti
   // Restore must not commit a new HEAD if its marker cannot be created.
   assert.throws(()=>store.restore(request.context,version,inspection.headHash,inspection.workingCopyHash),/Injected marker failure/);
   assert.equal(existsSync(loc.head),false);assert.equal(existsSync(marker),false);
- } finally {fs.openSync=original;syncBuiltinESMExports();}
+ } finally {fs.linkSync=original;syncBuiltinESMExports();}
  const inspection=store.inspect(request.context);
  assert.equal(store.restore(request.context,version,inspection.headHash,inspection.workingCopyHash).restored,true);
  assert.equal(readFileSync(marker,'utf8'),'Glue handoff initialized\n');

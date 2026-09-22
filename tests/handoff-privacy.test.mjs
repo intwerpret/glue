@@ -62,6 +62,7 @@ test('sensitive local-source exceptions cannot authorize siblings or changed sou
 
 test('capture metadata rejects private machine paths and tokenized URLs without retaining them', t => {
   for (const locator of ['C:\\Users\\synthetic-person\\private.txt', '/home/synthetic-person/private.txt', '/Users/synthetic-person/private.txt',
+    '\\\\synthetic-server\\share\\private.txt', '/var/synthetic-person/private.txt', 'file:///home/synthetic-person/private.txt',
     'https://example.invalid/document?access_token=SYNTHETIC_TOKEN_123456']) {
     const { workspace, store } = fixture(t);
     assert.throws(() => save(store, { captures: [capture('safe bytes', { label: locator })] }), error => {
@@ -72,6 +73,14 @@ test('capture metadata rejects private machine paths and tokenized URLs without 
     assertAbsent(workspace, 'synthetic-person');
     assertAbsent(workspace, 'SYNTHETIC_TOKEN_123456');
   }
+});
+
+test('safe public source URLs remain usable as portable capture metadata', t => {
+  const { store } = fixture(t), url = 'https://example.invalid/public-document';
+  const saved = save(store, { captures: [capture('Safe public text', { basis: url, scope: 'Public example', transfer: 'allowed' })] });
+  const preview = new Transfers(store).run({ action: 'preview', context: 'handoff.md', version: saved.version, captures: ['source'] });
+  assert.equal(preview.manifest.captures[0].label, 'Selected source');
+  assert.equal(store.head('handoff.md').saved.captures[0].basis, url);
 });
 
 test('host capture checks remain attributed observations and do not adopt new bytes', t => {
@@ -210,11 +219,41 @@ test('JSON credentials under an innocuous capture label are refused without reta
   assert.equal(store.resume({ context: 'handoff.md' }).version, null);
 });
 
+test('read and search recheck captures whose saved sensitivity flag predates the current detector', t => {
+  const { store, knowledge } = fixture(t), body = 'password=SYNTHETIC_SECRET_112233';
+  save(store, { captures: [capture(body, { sensitiveAcknowledgement: hash(body) })] });
+  const loc = store.location('handoff.md');
+  // Model a valid older revision whose detector did not yet mark these bytes sensitive.
+  const oldRevision = structuredClone(store.head('handoff.md').saved);
+  oldRevision.captures[0].sensitive = false;
+  const bytes = JSON.stringify(oldRevision), version = hash(bytes);
+  writeFileSync(join(loc.directory, 'revisions', version + '.json'), bytes);
+  writeFileSync(loc.head, JSON.stringify({ format: 1, version }));
+
+  assert.throws(() => knowledge.read({ context: 'handoff.md', capture: 'source' }), error => {
+    assert.match(error.message, /withheld unless allowSensitive:true/);
+    assert.equal(error.message.includes(body), false);
+    return true;
+  });
+  const bodySearch = knowledge.find({ query: 'SYNTHETIC_SECRET_112233' });
+  assert.deepEqual(bodySearch.results, []);
+  assert.equal(bodySearch.skippedSensitiveBodies, 1);
+  const labelSearch = knowledge.find({ query: 'Selected source', detail: 'full' });
+  assert.equal(labelSearch.results[0].sources[0].sensitive, true);
+  assert.equal(labelSearch.results[0].sources[0].excerpt, undefined);
+  const approved = knowledge.read({ context: 'handoff.md', capture: 'source', allowSensitive: true });
+  assert.equal(approved.text, body);
+  assert.equal(approved.sensitive, true);
+  assert.equal(approved.captures[0].sensitive, true);
+});
+
 test('portable metadata screening stays fast on long adversarial runs', async () => {
   const { assertPortableMetadata } = await import('../dist/captures.js');
-  for (const flagged of ['mail person@example.invalid now', 'see https://example.invalid/page?id=1', 'at C:\\data\\file.txt', 'in /home/person/file'])
+  for (const flagged of ['mail person@example.invalid now', 'see https://example.invalid/page?id=1', 'at C:\\data\\file.txt', 'in /home/person/file',
+    'at \\\\server\\share\\file', 'in /var/internal/file', 'file:///home/person/file'])
     assert.throws(() => assertPortableMetadata(flagged), /private locator/);
   assert.doesNotThrow(() => assertPortableMetadata('An ordinary label with no locator'));
+  assert.doesNotThrow(() => assertPortableMetadata('https://example.invalid/public-document'));
   const size = 400000;
   for (const run of ['a'.repeat(size), 'a.b-'.repeat(size / 4), 'x@'.repeat(size / 2), 'ftp//'.repeat(size / 5) + ' ' + '@a.'.repeat(size / 3)]) {
     const started = performance.now();

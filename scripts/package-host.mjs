@@ -19,7 +19,8 @@ export function packageHost(destination, host, author) {
   const actual = collectFiles(join(source, 'dist'));
   for (const [file, hash] of Object.entries(build.files))
     if (actual[file] !== hash) throw Error('Compiled output changed. Build before packaging.');
-  const version = JSON.parse(readFileSync(join(source, 'package.json'), 'utf8')).version;
+  const packageInfo = JSON.parse(readFileSync(join(source, 'package.json'), 'utf8'));
+  const version = packageInfo.version;
   mkdirSync(dirname(output), { recursive: true });
   const parent = realpathSync(dirname(output));
   const stage = mkdtempSync(join(parent, '.glue-plugin-stage-'));
@@ -35,7 +36,13 @@ export function packageHost(destination, host, author) {
     };
     const description = 'Continue and deliberately reuse selected project work with retained evidence.';
     if (host === 'claude-code') {
-      json('.claude-plugin/plugin.json', { name: 'glue', version, description, ...(author ? { author: { name: author } } : {}) });
+      json('.claude-plugin/plugin.json', {
+        name: 'glue', version, description,
+        author: { name: author ?? packageInfo.author },
+        homepage: packageInfo.homepage,
+        repository: packageInfo.repository.url.replace(/^git\+/, '').replace(/\.git$/, ''),
+        license: packageInfo.license,
+      });
       json('.mcp.json', { mcpServers: { glue: { command: 'node', args: ['${CLAUDE_PLUGIN_ROOT}/server.mjs'] } } });
       copy('integration/glue/SKILL.md', 'skills/glue/SKILL.md');
       for (const name of ['maintenance.md', 'hosts.md']) copy('integration/glue/references/' + name, 'skills/glue/references/' + name);

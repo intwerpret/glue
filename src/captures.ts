@@ -34,7 +34,11 @@ export const savedCapture = captureMetadata.extend({
 export type Capture = z.infer<typeof savedCapture>;
 
 // Each test is linear in the input. An unanchored address or URL pattern would rescan a long run from every offset.
-const localPath = /[a-z]:[\\/]|(?:^|\s)\/(?:home|users|private|tmp)\//i;
+// A drive letter needs a boundary: without one, the trailing "s:/" in "https://" looks like a drive path.
+const drivePath = /(?:^|[^a-z0-9])[a-z]:[\\/]/i;
+const networkPath = /(?:^|[\s"'(=])(?:\\\\|\/\/)[^\s\\/]+[\\/]/;
+const privateUnixPath = /(?:^|[\s"'(=])\/(?:home|users|private|tmp|var|etc|root|mnt|volumes)(?:\/|$)/i;
+const privateFileUri = /\b(?:file|smb|nfs):\/\//i;
 const address = /(?<![A-Z0-9._%+-])[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i;
 function urlWithQuery(value: string) {
   const scheme = /https?:\/\//gi, rest = /[^\s?#]*/y;
@@ -46,7 +50,9 @@ function urlWithQuery(value: string) {
   }
   return false;
 }
-const privateLocator = { test: (value: string) => localPath.test(value) || address.test(value) || urlWithQuery(value) };
+const privateLocator = { test: (value: string) =>
+  drivePath.test(value) || networkPath.test(value) || privateUnixPath.test(value) || privateFileUri.test(value) ||
+  address.test(value) || urlWithQuery(value) };
 const credential = /-----BEGIN (?:[A-Z ]+ )?PRIVATE KEY-----|\b(?:sk-[a-zA-Z0-9_-]{20,}|gh[pousr]_[a-zA-Z0-9]{20,}|AKIA[A-Z0-9]{16})\b|(?:password|api[_-]?key|access[_-]?token|secret)["']?\s*[:=]\s*["']?[^\s"']{8,}/i;
 export const secretName = (name: string) => /(?:^|[\\/])(?:\.env(?:\..*)?|\.npmrc|\.pypirc|id_(?:rsa|ed25519)|credentials(?:\.json)?|[^/\\]+\.(?:pem|key|p12|pfx))$/i.test(name);
 export const contentHash = (bytes: Buffer | string) => createHash('sha256').update(bytes).digest('hex');
