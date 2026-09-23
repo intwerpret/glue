@@ -207,6 +207,22 @@ test('ordinary Markdown adoption and external edit reconciliation preserve prior
  const b=store.save({context:'notes/handoff.md',expectedVersion:a.version,workingCopyHash:read.workingCopy.hash,markdown:'Reconciled external correction'});
  assert.equal(store.revision(store.location('notes/handoff.md').directory,b.version).workingCopyBefore,'External correction');
 });
+test('a leading UTF-8 BOM counts as divergence and its exact bytes are preserved on first save and update',t=>{
+ const {workspace,store}=fixture(t);mkdirSync(join(workspace,'notes'));const file=join(workspace,'notes/handoff.md');const bom=Buffer.from([0xef,0xbb,0xbf]);
+ const exact=r=>Buffer.from(store.revision(store.location('notes/handoff.md').directory,r.version).workingCopyBefore,'utf8');
+ // First save over an existing BOM-prefixed file whose text equals the proposed Markdown.
+ const original=Buffer.concat([bom,Buffer.from('# Context\nOriginal user decision.')]);writeFileSync(file,original);
+ assert.equal(store.resume({context:'notes/handoff.md'}).workingCopy.status,'edited');
+ assert.throws(()=>store.save(first()),/Working copy changed/);assert.deepEqual(readFileSync(file),original);
+ const a=store.save({...first(),workingCopyHash:store.resume({context:'notes/handoff.md'}).workingCopy.hash});
+ assert.deepEqual(exact(a),original);assert.equal(readFileSync(file,'utf8'),'# Context\nOriginal user decision.');
+ // Update: a BOM added to otherwise-unchanged saved text is an edit, not a silent match.
+ const edited=Buffer.concat([bom,Buffer.from('# Context\nOriginal user decision.')]);writeFileSync(file,edited);
+ const read=store.resume({context:'notes/handoff.md'});assert.equal(read.workingCopy.status,'edited');
+ assert.throws(()=>store.save({context:'notes/handoff.md',expectedVersion:a.version,markdown:'Next decision'}),/Working copy changed/);assert.deepEqual(readFileSync(file),edited);
+ const b=store.save({context:'notes/handoff.md',expectedVersion:a.version,workingCopyHash:read.workingCopy.hash,markdown:'Next decision'});
+ assert.deepEqual(exact(b),edited);assert.equal(readFileSync(file,'utf8'),'Next decision');
+});
 test('a changed observed working hash blocks reconciliation',t=>{
  const {workspace,store}=fixture(t);const a=store.save(first());writeFileSync(join(workspace,'notes/handoff.md'),'one');const token=store.resume({context:'notes/handoff.md'}).workingCopy.hash;
  writeFileSync(join(workspace,'notes/handoff.md'),'two');assert.throws(()=>store.save({context:'notes/handoff.md',expectedVersion:a.version,markdown:'combined',workingCopyHash:token}),/Working copy/);

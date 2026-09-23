@@ -128,7 +128,8 @@ export class Handoffs {
   working(file: string) {
     if (!existsSync(file)) return { hash: null, text: null };
     const bytes = read(file, 131072);
-    const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+    // Keep a leading BOM so a BOM-prefixed copy counts as diverged and its exact bytes are preserved.
+    const text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes);
     return { hash: hash(bytes), text };
   }
   observeWorking(file: string) {
