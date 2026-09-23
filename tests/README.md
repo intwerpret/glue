@@ -1,12 +1,18 @@
 # Tests
 
-Run `npm test`. Tests use disposable projects to check immutable history,
-conflicts and recovery, discovery and exact reads, portable identity, selected
-captures, deliberate transfer, privacy boundaries, MCP lifecycle and host setup.
+Run `npm test`. It builds the source and runs every `tests/handoff*.test.mjs` file with Node's built-in test runner.
 
-Host configuration and subprocess tests do not show that a real client loads
-Glue, and they do not measure how well an assistant continues saved work. CI
-runs on Windows, macOS and Linux. See [development](../DEVELOPMENT.md).
+Each test creates a throwaway project folder and uses made-up data. The tests cover:
 
-Temporary fixtures use resolved directory paths so system temporary-directory
-aliases do not interfere with linked-path guards or injected filesystem failures.
+- revisions, version conflicts, retries and recovery;
+- search and exact reads;
+- path handling across operating systems;
+- captures, sensitive content and transfer;
+- the MCP protocol and server lifecycle;
+- installation, packaging and host configuration.
+
+Some tests start Glue as a subprocess and talk to it over MCP. No test starts a real host app, so they cannot show that a host loads Glue.
+
+Test fixtures resolve temporary folder paths first. This keeps system aliases for the temporary folder from tripping Glue's link checks.
+
+See [CONTRIBUTING.md](../CONTRIBUTING.md) for setup and conventions.
