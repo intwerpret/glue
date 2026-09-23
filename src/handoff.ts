@@ -50,7 +50,13 @@ import {
 /** Kept as the compiled module's hash export. */
 export { sha256 as hash };
 const headSchema = z.object({ format: z.literal(1), version: digest }).strict();
-const resumeInput = z.object({ context: contextPath }).strict();
+const resumeInput = z
+  .object({
+    context: contextPath.describe(
+      'Path of the handoff within the project, for example notes/handoff.md.',
+    ),
+  })
+  .strict();
 // The full request as it is hashed for retries. `imported` is set only by a transfer import, never
 // by a tool caller.
 const commitInput = resumeInput
@@ -58,60 +64,60 @@ const commitInput = resumeInput
     expectedVersion: digest
       .nullable()
       .describe(
-        'null: create only if this context does not already exist. Otherwise the current saved version from resume; a stale value is a conflict and nothing is saved.',
+        'Current version from resume. null: create only if this context does not already exist. A stale version is refused and nothing is saved.',
       ),
     markdown: z
       .string()
       .min(1)
       .max(MAX_MARKDOWN_BYTES)
-      .describe('Full replacement handoff text (UTF-8, at most 32 KiB).'),
+      .describe('Complete new handoff text (UTF-8, up to 32 KiB). Replaces the previous text.'),
     evidence: z
       .array(sourcePath)
       .max(MAX_EVIDENCE_FILES)
       .optional()
       .describe(
-        'Workspace-relative files to snapshot. Omit to keep the current selection; [] clears it.',
+        'Project files to keep exact copies of. Omit to keep the current selection; [] clears it.',
       ),
     reviewedEvidence: z
       .array(z.object({ path: sourcePath, hash: digest }).strict())
       .max(MAX_EVIDENCE_FILES)
       .optional()
       .describe(
-        'Current hashes (from resume) of selected files that changed since the last save, acknowledging review.',
+        'For each selected file resume reported as changed: its path and current hash, confirming you reviewed it.',
       ),
     sensitiveEvidence: z
       .array(z.object({ path: sourcePath, hash: digest }).strict())
       .max(MAX_EVIDENCE_FILES)
       .optional()
       .describe(
-        'Exact-content exceptions for selected files that trip the sensitive-content heuristic.',
+        'Path and hash of a selected file the user explicitly allowed despite sensitive-content detection.',
       ),
     captures: z
       .array(captureInput)
       .max(MAX_CAPTURES)
       .optional()
       .describe(
-        'Host-retrieved material as canonical base64 with declared representation/basis/scope. Omit to keep current captures; [] clears them. transfer:"allowed" only permits later selection for transfer.',
+        'Outside material your host fetched, as base64 with a description. Omit to keep current captures; [] clears them. transfer:"allowed" only permits later selection for transfer.',
       ),
     imported: importedSchema.optional(),
     record: recordSchema
       .nullable()
       .optional()
       .describe(
-        'Caller-declared metadata: title, kind, scope, provenance, status. Omit to keep; null clears.',
+        'Labels that make this handoff findable and reusable: title, kind, scope, provenance, status. Omit to keep; null clears.',
       ),
     dependsOn: z
       .array(referenceSchema)
       .max(MAX_DEPENDENCIES)
       .optional()
       .describe(
-        'Exact pins {context, version} of other contexts at their current heads. Omit to keep; [] clears.',
+        'Other handoffs this one relies on, each as {context, version} at its current version. Omit to keep; [] clears.',
       ),
     workingCopyHash: digest
       .nullable()
       .optional()
       .describe(
-        'Observed working-copy hash from resume when the Markdown file was edited outside Glue.',
+        'Hash of the handoff file on disk, from resume, when it was edited outside Glue. null if the file is missing.',
       ),
   })
   .strict();
@@ -349,7 +355,9 @@ export class Handoffs {
       !/^[a-f0-9]{64}(\.[a-z0-9]{1,12})?$/.test(item.snapshot) ||
       !item.snapshot.startsWith(item.hash)
     )
-      throw Error('Invalid snapshot path.');
+      throw Error(
+        'A saved revision has an invalid snapshot path, so the store may be damaged. See the recovery guide.',
+      );
     return join(directory, 'evidence', item.snapshot);
   }
   evidenceBytes(directory: string, item: Revision['evidence'][number]) {
@@ -366,7 +374,10 @@ export class Handoffs {
     let current: string | null = head.version;
     const visited = new Set<string>();
     while (current) {
-      if (visited.has(current)) throw Error('History cycle.');
+      if (visited.has(current))
+        throw Error(
+          'Saved history loops back on itself, so the store is damaged. Nothing was changed; see the recovery guide.',
+        );
       if (visited.size >= MAX_HISTORY_REVISIONS)
         throw Error(
           'History lookup exceeds 10000 revisions; no committed membership claim was made.',
@@ -503,7 +514,10 @@ export class Handoffs {
     let ancestor = headVersion;
     const visited = new Set<string>();
     while (ancestor) {
-      if (visited.has(ancestor)) throw Error('History cycle.');
+      if (visited.has(ancestor))
+        throw Error(
+          'Saved history loops back on itself, so the store is damaged. Nothing was changed; see the recovery guide.',
+        );
       visited.add(ancestor);
       const old = this.revision(loc.directory, ancestor);
       if (old.context !== loc.rel) throw Error('History context mismatch.');

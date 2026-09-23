@@ -22,12 +22,21 @@ import {
 export const referenceSchema = z.object({ context: contextPath, version: digest }).strict();
 export const recordSchema = z
   .object({
-    title: z.string().trim().min(1).max(MAX_TITLE_LENGTH),
-    kind: recordKind,
-    scope: z.string().trim().min(1).max(MAX_SCOPE_LENGTH),
-    provenance: recordProvenance,
-    status: recordStatus,
-    supersededBy: referenceSchema.optional(),
+    title: z.string().trim().min(1).max(MAX_TITLE_LENGTH).describe('Short name for the record.'),
+    kind: recordKind.describe('decision, finding, note or artifact.'),
+    scope: z
+      .string()
+      .trim()
+      .min(1)
+      .max(MAX_SCOPE_LENGTH)
+      .describe('Where and when this record applies.'),
+    provenance: recordProvenance.describe(
+      'Where it came from: user, assistant, source or unknown.',
+    ),
+    status: recordStatus.describe('active, proposed, superseded or withdrawn.'),
+    supersededBy: referenceSchema
+      .optional()
+      .describe('Required when status is superseded: the {context, version} that replaces it.'),
   })
   .strict()
   .refine(
@@ -43,7 +52,9 @@ export const findInput = z
       .string()
       .max(MAX_QUERY_LENGTH)
       .default('')
-      .describe('Lexical terms; empty lists records.'),
+      .describe(
+        'Words to search for (any word matches, case-insensitive). Empty lists saved work.',
+      ),
     limit: z
       .number()
       .int()
@@ -51,23 +62,23 @@ export const findInput = z
       .max(MAX_FIND_RESULTS)
       .default(DEFAULT_FIND_RESULTS)
       .describe(
-        'Records per page. Omit for 10; maximum 20. Pass the returned next as cursor with unchanged options; a larger limit does not resolve skipped evidence bodies.',
+        'Records per page: 10 by default, 20 at most. A larger page does not search skipped evidence.',
       ),
     detail: z
       .enum(['compact', 'concise', 'full'])
       .optional()
       .describe(
-        'Default: compact for an empty query, concise matching evidence for search. full returns longer excerpts and source matches; compact omits excerpts. Snippets are navigation, not complete evidence.',
+        'compact (no excerpts), concise (short excerpts) or full (longer excerpts, more matches). Defaults to compact for listings, concise for searches. Read the exact text before relying on an excerpt.',
       ),
     includeHistory: z
       .boolean()
       .default(false)
-      .describe('Also search committed earlier revisions of each context.'),
+      .describe('Also search earlier revisions of each handoff.'),
     view: z
       .enum(['all', 'open'])
       .default('all')
       .describe(
-        'open: records that are active, proposed, or have no record metadata. This filters knowledge standing, not task completion; an active artifact may be finished. Withdrawn and superseded revisions stay readable by explicit context/version. all: every status.',
+        'all (default), or open to hide superseded and withdrawn records. open does not track whether tasks are finished.',
       ),
     status: z
       .array(z.enum(recordStatuses))
@@ -75,33 +86,42 @@ export const findInput = z
       .max(5)
       .optional()
       .describe(
-        'Explicit record-status filter; "none" matches revisions without record metadata. Overrides view. Keep filters identical across cursor pages.',
+        'Filter by record status; "none" matches handoffs without a record. Overrides view.',
       ),
     cursor: z
       .union([
         z.object({ contextId: digest, version: digest, head: digest }).strict(),
         z.object({ afterContextId: digest }).strict(),
       ])
-      .optional(),
+      .optional()
+      .describe('The next value from the previous page. Keep the other arguments unchanged.'),
   })
   .strict();
 export const conditionalResumeInput = z
   .object({
-    context: contextPath,
+    context: contextPath.describe(
+      'Path of the handoff within the project, for example notes/handoff.md.',
+    ),
     knownVersion: digest
       .optional()
       .describe(
-        'Omit Markdown only if this exact revision is still held by the caller. Omit after context loss or in a fresh session. Live evidence and dependency checks still run.',
+        'Version whose Markdown you still hold, to leave it out of the result. Checks still run. Omit in a new session.',
       ),
   })
   .strict();
 export const readInput = z
   .object({
-    context: contextPath,
-    version: digest.optional(),
-    source: sourcePath.optional(),
-    capture: captureId.optional(),
-    offset: z.number().int().min(0).default(0).describe('Byte offset into the exact saved bytes.'),
+    context: contextPath.describe(
+      'Path of the handoff within the project, for example notes/handoff.md.',
+    ),
+    version: digest.optional().describe('Revision to read. Omit for the current version.'),
+    source: sourcePath
+      .optional()
+      .describe('Path of a saved evidence file to read instead of the Markdown.'),
+    capture: captureId
+      .optional()
+      .describe('Id of a saved capture to read instead of the Markdown.'),
+    offset: z.number().int().min(0).default(0).describe('Byte offset to start reading from.'),
     limit: z
       .number()
       .int()
@@ -109,19 +129,19 @@ export const readInput = z
       .max(MAX_READ_BYTES)
       .default(DEFAULT_READ_BYTES)
       .describe(
-        'Bytes per page. Omit for 4096; maximum 8192. For more bytes, follow nextOffset with the same context, the returned version, and the same source or capture.',
+        'Bytes per page: 4096 by default, 8192 at most. Continue from nextOffset with the returned version and the same source or capture.',
       ),
     representation: z
       .enum(['both', 'text', 'base64'])
       .default('text')
       .describe(
-        'Default text omits duplicate base64 for valid UTF-8 pages; binary or split-character pages retain base64. Hashes and byte offsets are unchanged.',
+        'text (default), base64 or both. Pages that are not valid UTF-8 always include base64.',
       ),
     allowSensitive: z
       .boolean()
       .default(false)
       .describe(
-        'Required true to return the bytes of a capture or evidence snapshot that Glue marks sensitive. Records caller intent only; it is not authentication or proof of permission.',
+        'Return content Glue flagged as sensitive. Use only when the user has authorized reading it.',
       ),
   })
   .strict()

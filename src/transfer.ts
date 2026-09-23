@@ -121,31 +121,29 @@ export const transferInputSchema = z
     action: z
       .enum(transferActions)
       .describe(
-        'Sequence: preview (or preview-import) -> review the manifest and read the exact selected content -> export/import with the returned payloadHash as reviewedHash. check compares a caller-supplied upstream origin with an imported record.',
+        'preview, export, preview-import, import or check. Review each preview before the matching export or import.',
       ),
     context: contextPath
       .optional()
-      .describe(
-        'preview/export/check: the saved source context path (Markdown file). import: the destination context path to create or update.',
-      ),
+      .describe('preview, export, check: the source handoff path. import: the destination path.'),
     version: digest
       .optional()
       .describe(
-        'preview/export: the current saved head version of the source (required; export refuses a stale version). check: optional committed version of the imported record.',
+        'preview, export: the current version of the source handoff (required). check: optional version of the imported copy.',
       ),
     captures: z
       .array(captureMetadata.shape.id)
       .max(MAX_CAPTURES)
       .optional()
       .describe(
-        'preview/export: capture ids to include. Only captures saved with transfer:"allowed" and not marked sensitive can be selected; transfer:"allowed" permits selection, it does not include a capture automatically. Omitted captures count in omittedSupport.',
+        'preview, export: ids of captures to include. Only captures saved with transfer:"allowed" and not sensitive can be selected; allowed permits selection, it does not include a capture automatically.',
       ),
     evidence: z
       .array(evidenceSelection)
       .max(MAX_CAPTURES)
       .optional()
       .describe(
-        'preview/export: selected evidence snapshots to carry as captures, each with a new portable id, label and scope (private paths are not exported).',
+        'preview, export: evidence files to include, each with a new portable id, label and scope. Paths are not exported.',
       ),
     derivativeMarkdown: z
       .string()
@@ -153,35 +151,33 @@ export const transferInputSchema = z
       .max(MAX_MARKDOWN_BYTES)
       .optional()
       .describe(
-        'preview/export: reviewed replacement text when the saved Markdown embeds material that must not leave the project; marks the bundle derived.',
+        'preview, export: reviewed replacement text when the saved Markdown contains material that must not leave the project. Marks the copy as derived.',
       ),
     reviewedHash: digest
       .optional()
-      .describe(
-        'export/import: the payloadHash returned by the matching preview/preview-import of this exact selection or bundle.',
-      ),
+      .describe('export, import: the payloadHash from the matching preview.'),
     bundle: transferBundle
       .optional()
       .describe(
-        'preview-import/import: the bundle object exactly as export returned it (an object, not a JSON string).',
+        'preview-import, import: the bundle object exactly as export returned it (an object, not a string).',
       ),
     expectedVersion: digest
       .nullable()
       .optional()
       .describe(
-        "import: null to create only if the destination context does not already exist; otherwise the destination's current saved version.",
+        'import: null to create only if the destination does not exist yet; otherwise its current version.',
       ),
     workingCopyHash: digest
       .nullable()
       .optional()
       .describe(
-        'import: observed working-copy hash from resume when reconciling a diverged destination file.',
+        'import: hash of the destination file on disk, from resume, when it was edited outside Glue.',
       ),
     upstream: originSchema
       .nullable()
       .optional()
       .describe(
-        'check: the origin {namespace,id,version} re-obtained from the upstream project, or null when unavailable.',
+        'check: the origin {namespace, id, version} you just observed, or null if unavailable.',
       ),
   })
   .strict();

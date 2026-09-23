@@ -30,21 +30,59 @@ export const importedSchema = z
   .strict();
 export const captureMetadata = z
   .object({
-    id: captureId,
-    label: z.string().min(1).max(MAX_LABEL_LENGTH),
-    representation: z.enum(['original-bytes', 'extracted-text', 'excerpt', 'derived']),
-    basis: z.string().min(1).max(MAX_BASIS_LENGTH),
-    origin: originSchema.optional(),
-    retrievedAt: z.string().datetime().optional(),
-    originReceivedAt: z.string().datetime().optional(),
-    scope: z.string().min(1).max(MAX_SCOPE_LENGTH),
-    transfer: z.enum(['allowed', 'project-only']).default('project-only'),
+    id: captureId.describe(
+      'Short lowercase id, unique within the handoff (letters, digits, - and _).',
+    ),
+    label: z
+      .string()
+      .min(1)
+      .max(MAX_LABEL_LENGTH)
+      .describe('Readable name. Keep private URLs and account names out.'),
+    representation: z
+      .enum(['original-bytes', 'extracted-text', 'excerpt', 'derived'])
+      .describe('What the bytes are: original-bytes, extracted-text, excerpt or derived.'),
+    basis: z
+      .string()
+      .min(1)
+      .max(MAX_BASIS_LENGTH)
+      .describe('How the bytes were selected or extracted.'),
+    origin: originSchema
+      .optional()
+      .describe('Optional opaque source identity {namespace, id, version}.'),
+    retrievedAt: z
+      .string()
+      .datetime()
+      .optional()
+      .describe('When your host retrieved the material (ISO 8601).'),
+    originReceivedAt: z
+      .string()
+      .datetime()
+      .optional()
+      .describe('Set by transfer imports; leave unset.'),
+    scope: z
+      .string()
+      .min(1)
+      .max(MAX_SCOPE_LENGTH)
+      .describe('What the material applies to and any limits on its use.'),
+    transfer: z
+      .enum(['allowed', 'project-only'])
+      .default('project-only')
+      .describe(
+        'project-only (default) or allowed, which makes it selectable for a later transfer.',
+      ),
   })
   .strict();
 export const captureInput = captureMetadata
   .extend({
-    base64: z.string().max(MAX_CAPTURE_BASE64_LENGTH),
-    sensitiveAcknowledgement: digest.optional(),
+    base64: z
+      .string()
+      .max(MAX_CAPTURE_BASE64_LENGTH)
+      .describe('The selected bytes, base64-encoded (up to 1 MiB decoded).'),
+    sensitiveAcknowledgement: digest
+      .optional()
+      .describe(
+        'Hash of these exact bytes, when the user allowed saving content flagged as sensitive.',
+      ),
   })
   .strict();
 export const savedCapture = captureMetadata
@@ -141,13 +179,26 @@ export function prepareCapture(input: z.infer<typeof captureInput>, receivedAt: 
 
 export const captureCheckInput = z
   .object({
-    context: contextPath,
-    version: digest.optional(),
-    capture: captureId,
-    hash: digest,
+    context: contextPath.describe('Path of the handoff that holds the capture.'),
+    version: digest
+      .optional()
+      .describe('Revision holding the capture. Omit for the current version.'),
+    capture: captureId.describe('Id of the saved capture.'),
+    hash: digest.describe('SHA-256 of the bytes you just re-fetched.'),
     representation: captureMetadata.shape.representation,
-    basis: z.string().min(1).max(MAX_BASIS_LENGTH),
-    origin: originSchema.optional(),
-    retrievedAt: z.string().datetime(),
+    basis: z
+      .string()
+      .min(1)
+      .max(MAX_BASIS_LENGTH)
+      .describe(
+        'How you selected or extracted the new bytes. A different basis makes the comparison inconclusive.',
+      ),
+    origin: originSchema
+      .optional()
+      .describe('Optional current source identity {namespace, id, version}.'),
+    retrievedAt: z
+      .string()
+      .datetime()
+      .describe('When your host retrieved the new bytes (ISO 8601).'),
   })
   .strict();
