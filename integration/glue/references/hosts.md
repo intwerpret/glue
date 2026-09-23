@@ -1,53 +1,93 @@
-# Local host setup and project binding
+# Host setup
 
-Source installers configure a pinned local runtime for one explicit project. They cannot confirm that the host loads it; check that in the host. Linux desktop support depends on the host's own Linux release and the distribution in use.
+This page is the reference for connecting Glue to a host by hand, checking the connection, and removing it. For a guided walkthrough, see `docs/quickstart.md` in the Glue repository.
 
-Build the source first (`npm ci`, then `npm run build`). The `node scripts/...` commands below run from a source checkout; packaged plugins and extensions do not contain them. Node.js 22 or later is required for these command-based installations. Run setup from a terminal or a host with authorized command access. Claude Desktop chat needs no shell tools to use an already configured connection.
+Each Glue connection is bound to one project folder. It reads and writes only there. A prompt cannot change which folder that is.
 
-From a source checkout, `node install.mjs` run inside a project chooses the host, runs the matching command below, keeps Glue's files out of the project's Git history and runs the check. The commands below are the underlying steps.
+## Before you start
+
+The commands below run from the Glue source folder and need Node.js 22 or later. Build first:
+
+```sh
+npm ci
+npm run build
+```
+
+`node PATH_TO_GLUE/install.mjs`, run from inside a project, does the Codex and Claude Code setups below for you. It also adds Glue's files to `.gitignore` in a Git project and runs the check.
 
 ## Codex
 
-`node scripts/install-skill.mjs WORKSPACE --host codex`
+```sh
+node scripts/install-skill.mjs PROJECT_FOLDER --host codex
+```
 
-Writes `.agents/skills/glue` and appends to project `.codex/config.toml`, preserving prior text. Trust the project and restart/refresh the connection. Existing Glue names or occupied destinations are refused.
+This copies Glue into `.agents/skills/glue` and appends a marked `glue` block to `.codex/config.toml`. Existing text is kept. Trust the project in Codex, then start a new session.
 
 ## Claude Code
 
-The Claude Code plugin is a separate package containing the shared skill and
-runtime. Build it with `node scripts/package-claude-code.mjs NEW_OUTPUT_DIRECTORY`,
-then launch `claude --plugin-dir ABSOLUTE_PLUGIN_DIRECTORY` from the intended
-project. It uses the host's explicit project binding and leaves existing host
-configuration untouched. See the package README for its requirements.
-The direct project installer below is an alternative; do not enable both for
-the same project.
+For one project:
 
-`node scripts/install-skill.mjs WORKSPACE --host claude-code`
+```sh
+node scripts/install-skill.mjs PROJECT_FOLDER --host claude-code
+```
 
-Writes `.claude/skills/glue` and project `.mcp.json`. JSON settings are reserialized: unrelated values survive, whitespace changes. Duplicate keys and numeric values that would lose precision are refused. Approve the server in Claude Code; configuration alone is not activation. Select another server name with `--name PROJECT_SERVER`.
+This copies Glue into `.claude/skills/glue` and adds a `glue` server to `.mcp.json`. Other entries are kept, but the file is rewritten, so whitespace may change. Setup refuses a file with duplicate keys or numbers it cannot store exactly. Use `--name SERVER_NAME` to choose another server name. Approve the server in Claude Code.
 
-## Claude Desktop chat
+For every project, use the plugin instead:
 
-The `.mcpb` extension offers a required single-project folder picker.
-Open the bundle in Desktop, select the project folder and enable the
-intended connector. Changing this setting requires a deliberate connection restart
-and a fresh conversation. The bundle targets Windows/macOS with Node 22+. Desktop can run an extension in
-its own built-in Node.js or in the system Node.js; the extension has been verified
-on Windows with Desktop's built-in runtime. macOS and Linux extension loading are
-untested.
-It supplies MCP tools, not the Claude Code slash-command skill. The manual setup
-below is an alternative; do not enable duplicate Glue connections for one project.
+```sh
+node scripts/package-claude-code.mjs NEW_PLUGIN_FOLDER
+claude --plugin-dir ABSOLUTE_PLUGIN_FOLDER
+```
 
-`node scripts/install-skill.mjs WORKSPACE --host claude-desktop --config ABSOLUTE_CONFIG_FILE --name PROJECT_SERVER`
+Run `claude` from the project folder. The plugin binds to the project Claude Code opens. Don't use the plugin and a project install for the same project.
 
-Select the exact `claude_desktop_config.json` file for the intended profile. Glue does not discover a global profile implicitly. Choose a unique descriptive project server name. This installs `.agents/skills/glue-desktop` and writes its absolute project binding into the explicitly selected configuration. Existing names are refused. This is command-based setup, not an MCPB extension or bundled-runtime promise.
+## Claude Desktop
 
-Restart Desktop and select only the intended project connector for the conversation. Each connector stays bound to its project; chat text cannot change that boundary. Multiple enabled project connectors grant the assistant access to those projects separately. A conversation title does not isolate projects. Cross-project transfer requires explicit source and destination selection.
+The recommended setup is the `.mcpb` extension. See the quickstart, or the extension's own README.
 
-The local Code tab can inherit Desktop chat server definitions and gives them precedence over matching names in Code configuration. Avoid duplicate names across these surfaces. Standalone Claude Code does not automatically read Desktop chat configuration.
+To set up Desktop through its configuration file instead:
 
-## Checks and lifecycle
+```sh
+node scripts/install-skill.mjs PROJECT_FOLDER --host claude-desktop --config ABSOLUTE_PATH_TO/claude_desktop_config.json --name SERVER_NAME
+```
 
-Run the installed `scripts/check.mjs` with Node. It checks the package, recorded host binding, disabled/tool-filter settings and local MCP handshake/discovery. It cannot prove effective host policies, trust, connector selection or native conversation behavior. Confirm those in the host.
+- `--config` must be the exact `claude_desktop_config.json` of the Desktop profile you use. Glue does not look for it.
+- `--name` must be unique. Use one that names the project, such as `glue-website`.
+- This copies Glue into `.agents/skills/glue-desktop` and adds the server to that configuration file.
 
-Preserve handoffs and `.glue` when removing runtime files/connections. Stop the Glue process, delete only its recorded installed directory, and remove only the recorded server entry: the marked Codex block or named JSON `mcpServers` member. Preserve unrelated configuration. Moving the project or changing Node location requires deliberate reconnection. Editing or rebuilding source never changes an installed copy or its saved data.
+Restart Desktop. In each conversation, enable only the Glue connector for the project you mean. Each connector stays bound to its own project. With two enabled, the assistant can reach both.
+
+Desktop's Code tab can read server definitions from Desktop chat, and those take precedence over Code servers with the same name. Keep names distinct. Standalone Claude Code does not read Desktop's configuration.
+
+## Check a connection
+
+From anywhere, run the installed check:
+
+```sh
+node PROJECT_FOLDER/.agents/skills/glue/scripts/check.mjs
+```
+
+Use `.claude/skills/glue` or `.agents/skills/glue-desktop` for those setups. Run it with the same Node.js that ran the install, because the configuration records that exact program. The check verifies:
+
+- the installed files match what was built;
+- the host configuration points at this installation and is not disabled;
+- no tool filter hides Glue's tools;
+- the server starts and lists its six tools.
+
+It prints `"ok":true` on success. It reports `"nativeLoadingVerified":false` because it cannot see inside the host. Start a session and use Glue to confirm the host loaded it.
+
+## Remove a connection
+
+Removing Glue never deletes handoffs or the `.glue` folder.
+
+1. Stop the host or the Glue connection.
+2. Delete the installed folder: `.agents/skills/glue`, `.claude/skills/glue` or `.agents/skills/glue-desktop`.
+3. Remove the server entry:
+   - Codex: the lines from `# BEGIN GLUE MANAGED CONNECTION` to `# END GLUE MANAGED CONNECTION` in `.codex/config.toml`.
+   - Claude Code or Desktop: the Glue entry under `mcpServers` in the JSON file.
+4. Leave other configuration alone.
+
+To update, remove the old installation and install again. Installing over an existing copy is refused. Rebuilding the source never changes an installed copy.
+
+If you move the project folder or change your Node.js installation, remove and reinstall the connection.
