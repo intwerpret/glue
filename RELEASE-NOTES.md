@@ -24,7 +24,7 @@ Release candidate.
 | --- | --- |
 | Codex | Project installer |
 | Claude Code | Project installer or plugin |
-| Claude Desktop | Extension (Windows and macOS), or configuration file |
+| Claude Desktop | Extension (built for Windows and macOS; tested on Windows), or configuration file |
 
 Node.js 22 or later is required.
 

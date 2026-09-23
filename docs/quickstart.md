@@ -98,7 +98,7 @@ To share the plugin through a marketplace, run `node scripts/package-marketplace
 
 ## Claude Desktop
 
-Claude Desktop uses a Glue extension (an `.mcpb` file). The extension supports Windows and macOS.
+Claude Desktop uses a Glue extension (an `.mcpb` file). The extension is built for Windows and macOS. It has been tested on Windows; macOS is not yet tested.
 
 1. Build Glue and package the extension. `AUTHOR` is the name written into the extension's manifest.
 

@@ -2,7 +2,7 @@
 
 This extension adds Glue to Claude Desktop. Glue lets Claude save a piece of work as a Markdown handoff, with exact copies of the files it relied on, and resume it later.
 
-The extension supports Windows and macOS. It is unsigned.
+The extension is built for Windows and macOS and has been tested on Windows. It is unsigned.
 
 ## Install
 
