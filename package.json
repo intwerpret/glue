@@ -18,7 +18,8 @@
     "build": "node scripts/build.mjs",
     "test": "npm run build && node --test tests/handoff*.test.mjs",
     "format": "prettier --write src scripts integration tests install.mjs",
-    "format:check": "prettier --check src scripts integration tests install.mjs"
+    "format:check": "prettier --check src scripts integration tests install.mjs",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
     "smol-toml": "1.8.0",
