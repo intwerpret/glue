@@ -39,6 +39,16 @@ test('MCP negotiates an implemented version, reports package identity and accept
     assert.equal(rows[0].result.instructions.includes('Codex'), false);
     assert.deepEqual(rows[0].result.capabilities, { tools: {} });
     assert.deepEqual(rows[1].result.tools.map(tool => tool.name), ['glue_resume', 'glue_checkpoint', 'glue_find', 'glue_read', 'glue_check_capture', 'glue_transfer']);
+    assert.match(rows[0].result.instructions, /local stdio server/);
+    assert.match(rows[0].result.instructions, /makes no network requests/);
+    for (const tool of rows[1].result.tools) {
+      assert.equal(tool.annotations.openWorldHint, false, tool.name);
+      assert.equal(tool.annotations.destructiveHint, false, tool.name);
+      assert.equal(tool.annotations.readOnlyHint, tool.name !== 'glue_checkpoint' && tool.name !== 'glue_transfer', tool.name);
+    }
+    for (const name of ['glue_checkpoint', 'glue_transfer']) {
+      assert.match(rows[1].result.tools.find(tool => tool.name === name).description, /Glue makes no network requests/, name);
+    }
   }
   assert.deepEqual(readdirSync(workspace), []);
 });
