@@ -1,6 +1,9 @@
-# Glue
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme-banner-dark.png">
+  <img src="docs/assets/readme-banner-light.png" alt="Glue. Keep the context. Continue your work." width="100%">
+</picture>
 
-Keep the context. Continue your work.
+# Glue
 
 Glue lets your AI assistant save a piece of work and pick it up later, in a new conversation or a different app. Each save is a readable Markdown handoff in your project, plus exact copies of the files it relied on. When you resume, Glue tells you which of those files have changed since.
 
