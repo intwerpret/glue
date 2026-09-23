@@ -1,0 +1,35 @@
+name: Setup help
+description: Glue does not install, or the tools do not appear in your host.
+labels: [setup]
+body:
+  - type: markdown
+    attributes:
+      value: Check the [troubleshooting guide](https://github.com/intwerpret/glue/blob/main/docs/troubleshooting.md) first.
+  - type: dropdown
+    id: host
+    attributes:
+      label: Host
+      options: [Codex, Claude Code (plugin), Claude Code (project), Claude Desktop, Other]
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: What you ran
+      description: The install commands and any output. Remove private paths.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: result
+    attributes:
+      label: What you see
+      description: For example, the tools are missing from the host, or the installer refused.
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: Operating system and Node.js version
+    validations:
+      required: true

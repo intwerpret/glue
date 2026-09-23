@@ -1,0 +1,53 @@
+name: Bug report
+description: Something in Glue does not work as documented.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Please use made-up data: never paste real handoffs, credentials or private paths.
+        To report a security problem, follow SECURITY.md instead of opening an issue.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Install with ...
+        2. Ask the assistant to ...
+        3. See error ...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Glue version
+      placeholder: 0.5.0-rc.1
+    validations:
+      required: true
+  - type: dropdown
+    id: host
+    attributes:
+      label: Host
+      options: [Codex, Claude Code, Claude Desktop, Other]
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: Operating system and Node.js version
+      placeholder: Windows 11, Node.js 22.14
+    validations:
+      required: true
+  - type: textarea
+    id: output
+    attributes:
+      label: Error message or tool output
+      description: Remove anything private before pasting.
+      render: text
