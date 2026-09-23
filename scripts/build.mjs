@@ -16,7 +16,9 @@ for (const file of existsSync(join(root, 'dist')) ? readdirSync(join(root, 'dist
   )
     unlinkSync(join(root, 'dist', file));
 }
-const result = spawnSync(process.execPath, [require.resolve('typescript/bin/tsc')], {
+const tsPackage = require.resolve('typescript/package.json');
+const tsc = join(dirname(tsPackage), require(tsPackage).bin.tsc);
+const result = spawnSync(process.execPath, [tsc], {
   cwd: root,
   stdio: 'inherit',
 });

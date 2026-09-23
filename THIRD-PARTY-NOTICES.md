@@ -4,7 +4,7 @@ These notices cover the dependencies Glue bundles or builds with. Glue itself is
 
 The direct project installer bundles zod and smol-toml with their upstream license files. The Claude Code and Claude Desktop packages bundle zod; their launcher configuration does not require smol-toml. Dependency source and license text remain attributed to their upstream authors.
 
-## zod 4.1.8 (MIT)
+## zod 4.6.5 (MIT)
 
 MIT License
 
@@ -57,6 +57,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ## Development tooling
 
-The lockfile also includes TypeScript 5.9.3 (Apache-2.0), @types/node 22.19.19 (MIT) and undici-types 6.21.0 (MIT). They are build/test dependencies and are not bundled in the installed Glue runtime. Their upstream notices accompany their npm distributions.
+The lockfile also includes TypeScript 7.0.2 and its platform-specific `@typescript/typescript-*` compiler binaries (Apache-2.0), @types/node 22.20.4 (MIT) and undici-types 6.21.0 (MIT). They are build/test dependencies and are not bundled in the installed Glue runtime. Their upstream notices accompany their npm distributions.
 
 Node.js and npm are prerequisites for source installation, not bundled by Glue's project installer. The separately invoked MCPB packaging utility is development tooling and is not part of the Glue runtime.
