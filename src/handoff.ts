@@ -50,7 +50,7 @@ import {
 /** Kept as the compiled module's hash export. */
 export { sha256 as hash };
 const headSchema = z.object({ format: z.literal(1), version: digest }).strict();
-export const resumeInput = z.object({ context: contextPath }).strict();
+const resumeInput = z.object({ context: contextPath }).strict();
 // The full request as it is hashed for retries. `imported` is set only by a transfer import, never
 // by a tool caller.
 const commitInput = resumeInput

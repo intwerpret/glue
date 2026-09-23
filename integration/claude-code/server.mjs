@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { selectProject } from './project-binding.mjs';
 
 // Bind once at startup. Never infer a project from cwd, names or saved state.
-export function boundProject(
+function boundProject(
   environment = process.env,
   pluginRoot = dirname(fileURLToPath(import.meta.url)),
 ) {

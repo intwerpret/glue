@@ -38,7 +38,7 @@ const sourceMetadata = z
     status: sourceStatus,
   })
   .strict();
-export const transferBundle = z
+const transferBundle = z
   .object({
     format: z.literal(1),
     origin: originSchema,
@@ -69,7 +69,7 @@ const selection = z
     derivativeMarkdown: z.string().min(1).max(MAX_MARKDOWN_BYTES).optional(),
   })
   .strict();
-export const transferInput = z.discriminatedUnion('action', [
+const transferInput = z.discriminatedUnion('action', [
   selection.extend({ action: z.literal('preview') }),
   selection.extend({ action: z.literal('export'), reviewedHash: digest }),
   z.object({ action: z.literal('preview-import'), bundle: transferBundle }).strict(),
@@ -92,9 +92,9 @@ export const transferInput = z.discriminatedUnion('action', [
     })
     .strict(),
 ]);
-export const transferActions = ['preview', 'export', 'preview-import', 'check', 'import'] as const;
+const transferActions = ['preview', 'export', 'preview-import', 'check', 'import'] as const;
 /** Fields each action accepts. Validation stays action-specific; this is for discovery and guidance. */
-export const transferFields: Record<
+const transferFields: Record<
   (typeof transferActions)[number],
   { required: string[]; optional: string[] }
 > = {

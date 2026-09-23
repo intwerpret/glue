@@ -56,7 +56,7 @@ export const savedCapture = captureMetadata
     sensitive: z.boolean(),
   })
   .strict();
-export type Capture = z.infer<typeof savedCapture>;
+type Capture = z.infer<typeof savedCapture>;
 
 // Each test is linear in the input. An unanchored address or URL pattern would rescan a long run
 // from every offset. A drive letter needs a boundary: without one, the trailing "s:/" in "https://"
@@ -90,7 +90,7 @@ const privateLocator = {
 };
 const credential =
   /-----BEGIN (?:[A-Z ]+ )?PRIVATE KEY-----|\b(?:sk-[a-zA-Z0-9_-]{20,}|gh[pousr]_[a-zA-Z0-9]{20,}|AKIA[A-Z0-9]{16})\b|(?:password|api[_-]?key|access[_-]?token|secret)["']?\s*[:=]\s*["']?[^\s"']{8,}/i;
-export const secretName = (name: string) =>
+const secretName = (name: string) =>
   /(?:^|[\\/])(?:\.env(?:\..*)?|\.npmrc|\.pypirc|id_(?:rsa|ed25519)|credentials(?:\.json)?|[^/\\]+\.(?:pem|key|p12|pfx))$/i.test(
     name,
   );

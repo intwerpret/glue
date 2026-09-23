@@ -46,7 +46,7 @@ function productVersion() {
 }
 
 // Validation guidance names the field and the expected shape. It never echoes submitted values.
-export function describeIssues(error: z.ZodError) {
+function describeIssues(error: z.ZodError) {
   const seen = new Set<string>();
   const lines: string[] = [];
   for (const issue of error.issues) {

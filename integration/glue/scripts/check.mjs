@@ -32,22 +32,8 @@ try {
     typeof binding.config !== 'string'
   )
     throw Error('Invalid installed host binding.');
-  for (const file of [
-    'SKILL.md',
-    ...(binding.host === 'codex' ? ['agents/openai.yaml'] : []),
-    'references/maintenance.md',
-    'runtime/handoff.js',
-    'runtime/mcp.js',
-    'runtime/recovery.js',
-    'runtime/storage.js',
-    'runtime/input.js',
-    'runtime/package.json',
-    'runtime/node_modules/zod/package.json',
-  ]) {
-    const path = join(installation, file);
-    assertUnlinked(path);
-    if (!existsSync(path)) throw Error('Missing installed file: ' + file);
-  }
+  // The fingerprint above covers every installed file; this covers the directories holding them.
+  assertUnlinked(installation);
   const config = isAbsolute(binding.config) ? binding.config : join(workspace, binding.config);
   assertUnlinked(config);
   const parsed =
