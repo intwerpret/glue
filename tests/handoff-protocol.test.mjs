@@ -49,6 +49,7 @@ test('MCP negotiates an implemented version, reports package identity and accept
     for (const name of ['glue_checkpoint', 'glue_transfer']) {
       assert.match(rows[1].result.tools.find(tool => tool.name === name).description, /Glue makes no network requests/, name);
     }
+    assert.match(rows[1].result.tools.find(tool => tool.name === 'glue_find').description, /do not pass allowSensitive/);
   }
   assert.deepEqual(readdirSync(workspace), []);
 });
