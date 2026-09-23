@@ -1,8 +1,9 @@
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-// No top-level await: a host that loads this entry point inside its own bundled runtime may not support it,
-// and then runs none of this file. Process arguments are never read; only Desktop's required folder setting
-// supplies the binding, never an argument, cwd or Claude Code's environment.
+// No top-level await: a host that loads this entry point inside its own bundled runtime may not
+// support it, and then runs none of this file. Process arguments are never read; only Desktop's
+// required folder setting supplies the binding, never an argument, cwd or Claude Code's
+// environment.
 async function main() {
   let stage = 'node-version';
   try {
@@ -19,8 +20,9 @@ async function main() {
     stage = 'serving';
     await serveMcp(project);
   } catch {
-    // Name the failed stage without echoing paths or values, then exit explicitly once the message is flushed:
-    // a bundled host runtime can keep a failed process alive, which the host reports only as a timeout.
+    // Name the failed stage without echoing paths or values, then exit explicitly once the message
+    // is flushed: a bundled host runtime can keep a failed process alive, which the host reports
+    // only as a timeout.
     process.exitCode = 1;
     process.stderr.write(
       'Glue could not start or serve (' +

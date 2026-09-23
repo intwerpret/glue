@@ -56,7 +56,8 @@ export function portableFile(workspace: string, input: string) {
         throw new PathCollision(
           'Portable path collision. Resolve case or Unicode aliases explicitly; nothing was changed.',
         );
-      // A name that resolves without being listed is a filesystem alias, such as a Windows short name.
+      // A name that resolves without being listed is a filesystem alias, such as a Windows short
+      // name.
       if (!matches.length && existsSync(join(file, part)))
         throw Error('Reserved or ambiguous path.');
       file = join(file, matches[0] ?? part);
@@ -66,8 +67,8 @@ export function portableFile(workspace: string, input: string) {
   return { file, rel: lexical.rel };
 }
 
-// Directory names bind immutable context identities, so a validated name can be reused
-// even when HEAD advances. Re-enumeration detects added competing identities saved under another spelling.
+// Directory names bind immutable context identities, so a validated name can be reused even when
+// HEAD advances. Re-enumeration detects added competing identities saved under another spelling.
 const identityCache = new WeakMap<object, Map<string, string>>();
 export function contextIdentity(
   owner: object,
@@ -114,7 +115,8 @@ export function contextIdentity(
     );
   const existing = [...matches][0];
   if (existing !== undefined) return existing;
-  // An unreadable identity saved under another spelling might be this context. Never fork it implicitly.
+  // An unreadable identity saved under another spelling might be this context. Never fork it
+  // implicitly.
   if (unavailable)
     throw Error(
       'An unavailable saved identity prevents safely creating a new context. Inspect history first.',

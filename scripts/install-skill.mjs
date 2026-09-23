@@ -108,7 +108,8 @@ withInstallationLock(workspace, () => {
         type: 'module',
       }),
     );
-    // A project-local configuration is recorded relative to the workspace so the installed copy holds no machine path.
+    // A project-local configuration is recorded relative to the workspace so the installed copy
+    // holds no machine path.
     const local = relative(workspace, connection.file);
     const config =
       local && !local.startsWith('..') && !isAbsolute(local)

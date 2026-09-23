@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 // One-command setup: run from inside the project that should get Glue.
 //   node PATH/TO/glue/install.mjs [PROJECT] [--host codex|claude-code] [--yes]
-// It picks the project (current folder by default) and host, builds if needed, installs, keeps Glue's
-// files out of the project's Git history, and runs the installed check. scripts/install-skill.mjs does the install.
+// It picks the project (current folder by default) and host, builds if needed, installs, keeps
+// Glue's files out of the project's Git history, and runs the installed check.
+// scripts/install-skill.mjs does the install.
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { dirname, join, relative, isAbsolute, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';

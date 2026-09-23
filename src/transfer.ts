@@ -105,8 +105,9 @@ export const transferFields: Record<
   },
   check: { required: ['context', 'upstream'], optional: ['version'] },
 };
-// Advertised to hosts as one flat object: a discriminated union serializes without top-level properties,
-// which some hosts render as an empty schema. Every field is documented here; strict per-action parsing still applies.
+// Advertised to hosts as one flat object: a discriminated union serializes without top-level
+// properties, which some hosts render as an empty schema. Every field is documented here; strict
+// per-action parsing still applies.
 export const transferInputSchema = z
   .object({
     action: z
@@ -346,6 +347,11 @@ export class Transfers {
       });
     }
     const markdown = input.derivativeMarkdown ?? saved.markdown;
+    // Support the bundle leaves behind, counted without naming it.
+    const previouslyOmitted = saved.imported?.omittedSupport ?? 0;
+    const dependencies = (saved.dependsOn?.length ?? 0) + (saved.record?.supersededBy ? 1 : 0);
+    const unselectedEvidence = saved.evidence.length - input.evidence.length;
+    const unselectedCaptures = (saved.captures?.length ?? 0) - input.captures.length;
     const bundle: Bundle = {
       format: 1,
       origin: {
@@ -364,14 +370,7 @@ export class Transfers {
       markdownHash: contentHash(markdown),
       derived: input.derivativeMarkdown !== undefined,
       captures,
-      omittedSupport:
-        (saved.imported?.omittedSupport ?? 0) +
-        (saved.dependsOn?.length ?? 0) +
-        (saved.record?.supersededBy ? 1 : 0) +
-        saved.evidence.length -
-        input.evidence.length +
-        (saved.captures?.length ?? 0) -
-        input.captures.length,
+      omittedSupport: previouslyOmitted + dependencies + unselectedEvidence + unselectedCaptures,
     };
     const canonical = validateBundle(bundle);
     if (this.store.head(input.context).version !== input.version)
@@ -383,24 +382,20 @@ export class Transfers {
       value !== null && typeof value === 'object' && !Array.isArray(value)
         ? (value as Record<string, unknown>).action
         : undefined;
-    if (typeof action !== 'string' || !(transferActions as readonly string[]).includes(action))
+    if (typeof action !== 'string' || !(transferActions as readonly string[]).includes(action)) {
+      const fieldsOf = (name: (typeof transferActions)[number]) => {
+        const { required, optional } = transferFields[name];
+        const optionalText = optional.length ? ' (optional: ' + optional.join(', ') + ')' : '';
+        return name + ' requires ' + required.join(', ') + optionalText;
+      };
       throw Error(
         'Transfer requires action, one of: ' +
           transferActions.join(', ') +
           '. Fields by action: ' +
-          transferActions
-            .map(
-              name =>
-                name +
-                ' requires ' +
-                transferFields[name].required.join(', ') +
-                (transferFields[name].optional.length
-                  ? ' (optional: ' + transferFields[name].optional.join(', ') + ')'
-                  : ''),
-            )
-            .join('; ') +
+          transferActions.map(fieldsOf).join('; ') +
           '.',
       );
+    }
     const input = transferInput.parse(value);
     if (input.action === 'check') {
       const saved = this.store.committed(input.context, input.version),

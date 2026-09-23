@@ -38,7 +38,8 @@ import {
 export const digest = z.string().regex(/^[a-f0-9]{64}$/);
 const headSchema = z.object({ format: z.literal(1), version: digest }).strict();
 export const resumeInput = z.object({ context: z.string().min(1).max(500) }).strict();
-// The full request as it is hashed for retries. `imported` is set only by a transfer import, never by a tool caller.
+// The full request as it is hashed for retries. `imported` is set only by a transfer import, never
+// by a tool caller.
 const commitInput = resumeInput
   .extend({
     expectedVersion: digest
@@ -264,7 +265,8 @@ export class Handoffs {
   working(file: string) {
     if (!existsSync(file)) return { hash: null, text: null };
     const bytes = read(file, 131072);
-    // Keep a leading BOM so a BOM-prefixed copy counts as diverged and its exact bytes are preserved.
+    // Keep a leading BOM so a BOM-prefixed copy counts as diverged and its exact bytes are
+    // preserved.
     const text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes);
     return { hash: hash(bytes), text };
   }
@@ -281,7 +283,8 @@ export class Handoffs {
   private updateWorkingCopy(file: string, expectedHash: string | null, markdown: string): boolean {
     // Call only after committing HEAD. Failure here must not undo saved history.
     try {
-      // Do not knowingly overwrite a native edit. The documented filesystem race limit still applies.
+      // Do not knowingly overwrite a native edit. The documented filesystem race limit still
+      // applies.
       if (this.working(file).hash !== expectedHash) return false;
       mkdirSync(dirname(file), { recursive: true });
       atomicWrite(file, markdown);
@@ -430,11 +433,9 @@ export class Handoffs {
     };
   }
   save(input: unknown, imported?: z.infer<typeof importedSchema>) {
-    const request = commitInput.parse({
-        ...saveInput.parse(input),
-        ...(imported ? { imported } : {}),
-      }),
-      loc = this.location(request.context);
+    const callerRequest = saveInput.parse(input);
+    const request = commitInput.parse({ ...callerRequest, ...(imported ? { imported } : {}) });
+    const loc = this.location(request.context);
     if (Buffer.byteLength(request.markdown) > 32768)
       throw Error('Keep the handoff within 32 KiB; reference full artifacts.');
     const selected =
@@ -458,8 +459,8 @@ export class Handoffs {
       );
       return lockNotReleased ? { ...value, lockNotReleased } : value;
     } catch (error) {
-      // A rejected first save must not leave an empty identity directory behind. rmdir refuses anything non-empty,
-      // so history, evidence bytes and another writer's lock are never removed.
+      // A rejected first save must not leave an empty identity directory behind. rmdir refuses
+      // anything non-empty, so history, evidence bytes and another writer's lock are never removed.
       if (created) {
         try {
           rmdirSync(loc.directory);
@@ -469,6 +470,31 @@ export class Handoffs {
       }
       throw error;
     }
+  }
+  /** The committed ancestor of HEAD saved by this exact request, verified, if any. */
+  private committedRetry(
+    loc: ReturnType<Handoffs['location']>,
+    headVersion: string | null,
+    key: string,
+  ): string | undefined {
+    // Only committed ancestors qualify; orphaned pre-commit revisions do not.
+    let ancestor = headVersion;
+    const visited = new Set<string>();
+    while (ancestor) {
+      if (visited.has(ancestor)) throw Error('History cycle.');
+      visited.add(ancestor);
+      const old = this.revision(loc.directory, ancestor);
+      if (old.context !== loc.rel) throw Error('History context mismatch.');
+      if (visited.size > 10000)
+        throw Error('Retry lookup exceeds 10000 revisions. Inspect history; no new save was made.');
+      if (old.request === key) {
+        this.verifyEvidence(loc.directory, old.evidence);
+        this.verifyCaptures(loc.directory, old.captures ?? []);
+        return ancestor;
+      }
+      ancestor = old.parent;
+    }
+    return undefined;
   }
   private commit(
     request: z.infer<typeof commitInput>,
@@ -481,32 +507,16 @@ export class Handoffs {
     const head = this.head(request.context, true);
     // A request against HEAD is new work. Older requests may be committed retries.
     if (request.expectedVersion !== head.version) {
-      // Only committed ancestors qualify; orphaned pre-commit revisions do not.
-      let ancestor = head.version;
-      const visited = new Set<string>();
-      while (ancestor) {
-        if (visited.has(ancestor)) throw Error('History cycle.');
-        visited.add(ancestor);
-        const old = this.revision(loc.directory, ancestor);
-        if (old.context !== loc.rel) throw Error('History context mismatch.');
-        if (visited.size > 10000)
-          throw Error(
-            'Retry lookup exceeds 10000 revisions. Inspect history; no new save was made.',
-          );
-        if (old.request === key) {
-          this.verifyEvidence(loc.directory, old.evidence);
-          this.verifyCaptures(loc.directory, old.captures ?? []);
-          return {
-            committed: true,
-            version: ancestor,
-            currentVersion: head.version,
-            replayed: true,
-            workingCopyUpdated: false,
-          };
-        }
-        ancestor = old.parent;
-      }
-      throw Error('Version conflict. Resume and reconcile; nothing was saved.');
+      const replayedVersion = this.committedRetry(loc, head.version, key);
+      if (replayedVersion === undefined)
+        throw Error('Version conflict. Resume and reconcile; nothing was saved.');
+      return {
+        committed: true,
+        version: replayedVersion,
+        currentVersion: head.version,
+        replayed: true,
+        workingCopyUpdated: false,
+      };
     }
     const working = this.working(loc.file);
     const diverged = head.saved ? working.text !== head.saved.markdown : working.text !== null;
@@ -737,7 +747,8 @@ export class Handoffs {
       if (selected.context !== loc.rel) throw Error('Context mismatch.');
       this.verifyEvidence(loc.directory, selected.evidence);
       this.verifyCaptures(loc.directory, selected.captures ?? []);
-      // Preserve damaged/current pointer and manual text rather than deleting or overwriting history.
+      // Preserve damaged/current pointer and manual text rather than deleting or overwriting
+      // history.
       const recovery = JSON.stringify({
         head: headBytes?.toString('base64') ?? null,
         workingCopy: working.text,

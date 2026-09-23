@@ -261,7 +261,8 @@ test('a failed first save leaves no historical identity that blocks unrelated ne
       evidence: ['missing.txt'],
     }),
   );
-  // A rejected first save leaves no identity directory; a pre-existing empty remnant is still tolerated by identity lookup.
+  // A rejected first save leaves no identity directory; a pre-existing empty remnant is still
+  // tolerated by identity lookup.
   assert.equal(existsSync(join(workspace, '.glue', 'contexts', hash('failed.md'))), false);
   const empty = join(workspace, '.glue', 'contexts', hash('remnant.md'));
   mkdirSync(empty, { recursive: true });

@@ -15,12 +15,11 @@ import { pathKey, PathCollision } from './identity.js';
 type Saved = ReturnType<Handoffs['committed']>;
 const byteBudget = 64 * 1024 * 1024;
 const excerpt = (text: string, terms: string[], limit = 480) => {
-  const lower = text.toLowerCase(),
-    positions = terms.map(term => lower.indexOf(term)).filter(n => n >= 0);
-  const start = Math.max(
-    0,
-    (positions.length ? Math.min(...positions) : 0) - Math.min(100, Math.floor(limit / 4)),
-  );
+  const lower = text.toLowerCase();
+  const positions = terms.map(term => lower.indexOf(term)).filter(n => n >= 0);
+  const firstMatch = positions.length ? Math.min(...positions) : 0;
+  const lead = Math.min(100, Math.floor(limit / 4));
+  const start = Math.max(0, firstMatch - lead);
   return {
     text: text.slice(start, start + limit),
     characterOffset: start,
@@ -210,7 +209,8 @@ export class Knowledge {
       if (!item) throw Error('Source was not selected in this saved revision.');
       body = this.store.evidenceBytes(node.directory, item);
       contentHash = item.hash;
-      // Evidence snapshots carry no stored flag; the same heuristic that gates capture is applied at retrieval.
+      // Evidence snapshots carry no stored flag; the same heuristic that gates capture is applied
+      // at retrieval.
       sensitive = isSensitive(body, item.path);
       if (sensitive && !request.allowSensitive) refuse();
     } else {
@@ -326,6 +326,7 @@ export class Knowledge {
       throw Error('Search cursor context disappeared. Restart the search.');
     const terms = [...new Set(request.query.toLowerCase().match(/[\p{L}\p{N}_]+/gu) ?? [])];
     const detail = request.detail ?? (terms.length ? 'concise' : 'compact');
+    const sourceExcerptLength = detail === 'full' ? 480 : 160;
     const matches = (text: string) =>
       !terms.length || terms.some(term => text.toLowerCase().includes(term));
     const statuses = new Set<string>(
@@ -497,9 +498,7 @@ export class Knowledge {
               path: item.path,
               hash: item.hash,
               ...(sensitive ? { sensitive: true, excerptOmitted: 'sensitive' } : {}),
-              ...(text === undefined
-                ? {}
-                : { excerpt: excerpt(text, terms, detail === 'full' ? 480 : 160) }),
+              ...(text === undefined ? {} : { excerpt: excerpt(text, terms, sourceExcerptLength) }),
             });
         }
         for (const item of saved.captures ?? []) {
@@ -529,9 +528,7 @@ export class Knowledge {
               label: item.label,
               hash: item.hash,
               ...(sensitive ? { sensitive: true, excerptOmitted: 'sensitive' } : {}),
-              ...(text === undefined
-                ? {}
-                : { excerpt: excerpt(text, terms, detail === 'full' ? 480 : 160) }),
+              ...(text === undefined ? {} : { excerpt: excerpt(text, terms, sourceExcerptLength) }),
             });
         }
         if (matches(metadata) || sources.length) {
@@ -605,6 +602,19 @@ export class Knowledge {
         current = request.includeHistory ? saved.parent : null;
       }
     }
+    const coverage =
+      detail === 'full'
+        ? 'Saved contexts and selected snapshots only; no workspace crawl. At most 64 revisions, 64 gaps and 1 MiB of UTF-8 evidence per page; individual evidence above 256 KiB is name-only. Sensitive bodies are never matched or excerpted; their names and hashes still appear. Revisions outside the status filter are scanned but not returned. Follow next with the same query, history and filter options. Search is lexical, not a relevance or completeness guarantee.'
+        : {
+            scope: 'saved_only',
+            matching: 'lexical',
+            freshness: 'not_checked',
+            maxRevisions: 64,
+            maxGaps: 64,
+            maxEvidenceBytes: 1024 * 1024,
+            maxBodyBytes: 256 * 1024,
+            continuation: next !== undefined,
+          };
     return {
       results,
       next: next ?? null,
@@ -614,19 +624,7 @@ export class Knowledge {
       skippedSensitiveBodies: skippedSensitive,
       filter: { view: request.view, statuses: [...statuses] },
       ...(detail === 'full' ? {} : { detail }),
-      coverage:
-        detail === 'full'
-          ? 'Saved contexts and selected snapshots only; no workspace crawl. At most 64 revisions, 64 gaps and 1 MiB of UTF-8 evidence per page; individual evidence above 256 KiB is name-only. Sensitive bodies are never matched or excerpted; their names and hashes still appear. Revisions outside the status filter are scanned but not returned. Follow next with the same query, history and filter options. Search is lexical, not a relevance or completeness guarantee.'
-          : {
-              scope: 'saved_only',
-              matching: 'lexical',
-              freshness: 'not_checked',
-              maxRevisions: 64,
-              maxGaps: 64,
-              maxEvidenceBytes: 1024 * 1024,
-              maxBodyBytes: 256 * 1024,
-              continuation: next !== undefined,
-            },
+      coverage,
     };
   }
 }

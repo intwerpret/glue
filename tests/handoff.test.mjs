@@ -563,7 +563,8 @@ test('damaged working copies do not hide saved state or allow writes', t => {
       readdirSync(loc.directory).some(name => name.startsWith('recovery-')),
       false,
     );
-    // Preserving the external bytes and explicitly removing the damaged projection permits recovery.
+    // Preserving the external bytes and explicitly removing the damaged projection permits
+    // recovery.
     writeFileSync(join(workspace, 'preserved-working-copy.bin'), damaged);
     unlinkSync(loc.file);
     const missing = store.inspect(request.context);

@@ -43,18 +43,26 @@ export function describeIssues(error: z.ZodError) {
   const lines: string[] = [];
   for (const issue of error.issues) {
     const field = issue.path.length ? issue.path.map(String).join('.') : '(arguments)';
+    // Zod issue variants carry different detail fields; read only the one each case names.
+    const detail = issue as {
+      expected?: string;
+      values?: unknown[];
+      format?: string;
+      origin?: string;
+      minimum?: unknown;
+      maximum?: unknown;
+      keys?: string[];
+    };
     let expected: string;
     switch (issue.code) {
-      case 'invalid_type':
-        expected =
-          'expected ' +
-          (issue as { expected?: string }).expected +
-          (issue.message.includes('received undefined') ? ' (missing)' : '');
+      case 'invalid_type': {
+        const missing = issue.message.includes('received undefined') ? ' (missing)' : '';
+        expected = 'expected ' + detail.expected + missing;
         break;
+      }
       case 'invalid_value':
         expected =
-          'expected one of: ' +
-          ((issue as { values?: unknown[] }).values ?? []).map(v => JSON.stringify(v)).join(', ');
+          'expected one of: ' + (detail.values ?? []).map(v => JSON.stringify(v)).join(', ');
         break;
       case 'invalid_union':
         expected =
@@ -63,36 +71,28 @@ export function describeIssues(error: z.ZodError) {
             : 'no accepted shape matched; check the fields required for this action';
         break;
       case 'invalid_format': {
-        const format = (issue as { format?: string; pattern?: string }).format;
+        const nullable = /^(expectedVersion|workingCopyHash)$/.test(field);
+        const nullHint = nullable ? ' or JSON null (not the string "null")' : '';
         expected =
-          format === 'regex'
+          detail.format === 'regex'
             ? 'expected the documented pattern (a 64-character lowercase hex digest, or the id/token pattern)' +
-              (/^(expectedVersion|workingCopyHash)$/.test(field)
-                ? ' or JSON null (not the string "null")'
-                : '')
-            : 'expected ' + format;
+              nullHint
+            : 'expected ' + detail.format;
         break;
       }
       case 'too_small':
         expected =
-          'below the minimum ' +
-          ((issue as { origin?: string }).origin ?? 'size') +
-          ' (' +
-          String((issue as { minimum?: unknown }).minimum) +
-          ')';
+          'below the minimum ' + (detail.origin ?? 'size') + ' (' + String(detail.minimum) + ')';
         break;
       case 'too_big':
         expected =
-          'above the maximum ' +
-          ((issue as { origin?: string }).origin ?? 'size') +
-          ' (' +
-          String((issue as { maximum?: unknown }).maximum) +
-          ')';
+          'above the maximum ' + (detail.origin ?? 'size') + ' (' + String(detail.maximum) + ')';
         break;
-      // Key names are caller input and are not echoed; the count plus the documented field list is enough to correct the call.
+      // Key names are caller input and are not echoed; the count plus the documented field list is
+      // enough to correct the call.
       case 'unrecognized_keys':
         expected =
-          ((issue as { keys?: string[] }).keys ?? []).length +
+          (detail.keys ?? []).length +
           ' unrecognized field(s); use only the documented fields for this tool and action';
         break;
       case 'custom':
@@ -236,7 +236,8 @@ async function* inputChunks(
 
 // Bound bytes before a newline arrives; readline would accumulate an unlimited line first.
 async function* requests(input: NodeJS.ReadableStream, aborted: AbortSignal) {
-  // An oversized line is discarded up to its newline and reported as null, so the connection survives.
+  // An oversized line is discarded up to its newline and reported as null, so the connection
+  // survives.
   const maximumLineBytes = 2 * 1024 * 1024;
   let pending = Buffer.alloc(0),
     pendingBytes = 0,
@@ -409,7 +410,8 @@ export async function serveMcp(workspace: string) {
         continue;
       }
       if (!('id' in req)) {
-        // Notifications never produce responses or execute tools. No server-initiated requests exist.
+        // Notifications never produce responses or execute tools. No server-initiated requests
+        // exist.
         if (
           req.method === 'notifications/initialized' &&
           phase === 'initializing' &&
@@ -479,7 +481,8 @@ export async function serveMcp(workspace: string) {
             tools: tools.map(tool => ({
               name: tool.name,
               description: tool.description,
-              // Writes add revisions under .glue and replace the context Markdown only when its current text is already saved or kept in the new revision; no network access.
+              // Writes add revisions under .glue and replace the context Markdown only when its
+              // current text is already saved or kept in the new revision; no network access.
               annotations: {
                 readOnlyHint: tool.name !== 'glue_checkpoint' && tool.name !== 'glue_transfer',
                 destructiveHint: false,
@@ -505,7 +508,8 @@ export async function serveMcp(workspace: string) {
         await fail(id, -32602, 'Unknown Glue tool');
         continue;
       }
-      // Tool input and execution failures are visible to the model as tool results, not protocol errors.
+      // Tool input and execution failures are visible to the model as tool results, not protocol
+      // errors.
       let result: { content: Array<{ type: 'text'; text: string }>; isError?: boolean };
       try {
         result = {

@@ -14,7 +14,8 @@ function fixture(t) {
   t.after(() => fs.rmSync(workspace, { recursive: true, force: true }));
   return workspace;
 }
-// step 'unlinkSync' keeps owner.json; step 'rmdirSync' removes owner.json and keeps the empty lock directory.
+// step 'unlinkSync' keeps owner.json; step 'rmdirSync' removes owner.json and keeps the empty lock
+// directory.
 function withLockRemovalDenied(run, step = 'unlinkSync', code = 'EPERM') {
   const original = fs[step],
     target = step === 'unlinkSync' ? join('.write-lock', 'owner.json') : '.write-lock';

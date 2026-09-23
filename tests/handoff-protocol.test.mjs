@@ -332,7 +332,8 @@ test('damaged saved files are reported as damaged history, not as invalid caller
 
 test('MCP serves a host runtime whose stdin only emits data events and whose stdout ignores write callbacks', t => {
   const { workspace } = fixture(t);
-  // Stand-in for a bundled host runtime: stdin is a bare event emitter, not an async-iterable stream.
+  // Stand-in for a bundled host runtime: stdin is a bare event emitter, not an async-iterable
+  // stream.
   const harness = `
     import { EventEmitter } from 'node:events';
     const real = process.stdin, fake = new EventEmitter();

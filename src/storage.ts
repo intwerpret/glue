@@ -90,8 +90,9 @@ export function acquireLock(directory: string, name: string, message: string) {
     throw error;
   }
   let released = false;
-  // Never throws: callers release in finally, where a throw would replace the outcome of the work the lock protected.
-  // One attempt only. A lock this call failed to remove may later belong to another writer.
+  // Never throws: callers release in finally, where a throw would replace the outcome of the work
+  // the lock protected. One attempt only. A lock this call failed to remove may later belong to
+  // another writer.
   return (): string | undefined => {
     if (released) return undefined;
     released = true;

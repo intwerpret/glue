@@ -321,7 +321,8 @@ test('gap diagnostics distinguish remnants, uninitialized and damaged histories,
   writeFileSync(join(contexts, hash('junk.md'), 'stray.txt'), 'x');
   mkdirSync(join(contexts, hash('headless.md'), 'revisions'), { recursive: true });
   writeFileSync(join(contexts, hash('headless.md'), '.initialized'), 'Glue handoff initialized\n');
-  // Verified revision whose context directory does not match its identity: path is known and reported.
+  // Verified revision whose context directory does not match its identity: path is known and
+  // reported.
   const other = fixture(t, 'glue-test-other-');
   const receipt = other.store.save({
     context: 'moved.md',
@@ -519,7 +520,8 @@ test('local import freshness cannot certify upstream currency or silently adopt 
     context: 'policy.md',
     version: a.store.head('policy.md').version,
   });
-  // The source identity is known from the received bundle; only the observed source head version changed.
+  // The source identity is known from the received bundle; only the observed source head version
+  // changed.
   const check = b.transfers.run({
     action: 'check',
     context: 'copy.md',

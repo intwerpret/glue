@@ -49,8 +49,9 @@ export const savedCapture = captureMetadata
   .strict();
 export type Capture = z.infer<typeof savedCapture>;
 
-// Each test is linear in the input. An unanchored address or URL pattern would rescan a long run from every offset.
-// A drive letter needs a boundary: without one, the trailing "s:/" in "https://" looks like a drive path.
+// Each test is linear in the input. An unanchored address or URL pattern would rescan a long run
+// from every offset. A drive letter needs a boundary: without one, the trailing "s:/" in "https://"
+// looks like a drive path.
 const drivePath = /(?:^|[^a-z0-9])[a-z]:[\\/]/i;
 const networkPath = /(?:^|[\s"'(=])(?:\\\\|\/\/)[^\s\\/]+[\\/]/;
 const privateUnixPath =
