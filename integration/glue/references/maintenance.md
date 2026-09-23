@@ -1,71 +1,134 @@
 # Recovery and maintenance
 
-Normal continuation uses Glue's host tools. These instructions are for deliberate maintenance using a terminal. A host without terminal access needs an authorized local operator for this procedure; do not assume the assistant can run shell commands.
+Use these procedures when saved history is damaged, a lock is left behind, or something was saved by accident. Everyday saving and resuming does not need them.
 
-## Inspect and recover damaged history
+You need a terminal. The assistant can run these steps only if its host gives it shell access and you ask it to. Claude Desktop chat usually has no shell access, so run the steps yourself.
 
-For a default Codex installation, save this valid JSON as `inspect-request.json` in a private working directory:
+## Find the recovery tool
 
-```json
-{"action":"inspect","context":"notes/handoff.md"}
-```
-
-From the project directory, run:
+The recovery tool is `runtime/recovery.js` inside your Glue installation. Run it with Node.js:
 
 ```sh
-node .agents/skills/glue/runtime/recovery.js . inspect-request.json
+node RECOVERY_TOOL PROJECT_FOLDER REQUEST_FILE
 ```
 
-Use the installed runtime path for your host from [host setup](hosts.md). The request-file path can be absolute if it is outside the current directory. Inspection is read-only. Preserve its output privately: hashes, paths and saved metadata may reveal project details.
+`REQUEST_FILE` is a small JSON file that says what to do. Use `-` to read the request from standard input instead.
 
-For a Claude Code plugin or Desktop extension, `runtime/recovery.js` is inside
-the package, while the project is a separate folder. An authorized local operator
-can use `node "PACKAGE_DIRECTORY/runtime/recovery.js" "PROJECT_DIRECTORY" "REQUEST_FILE"`,
-replacing all three placeholders with actual absolute paths. Use that same form
-for either inspection or restoration. Desktop chat need not have terminal access;
-do not guess its managed package location or switch to another runtime silently.
+Where the tool is, by host:
 
-`valid` describes revision/snapshot integrity. `ancestry.status` separately reports `complete`, `incomplete`, `unavailable` or `empty`; `missingParents`, `reason` and `blockedAt` explain gaps. `reachableFromHead` is true for known reachable revisions, false only when exclusion is established, and null when it cannot be determined. An intact detached revision may be prior history or an interrupted save, not disposable data.
+| Host | Recovery tool, relative to the project folder |
+| --- | --- |
+| Codex | `.agents/skills/glue/runtime/recovery.js` |
+| Claude Code, one project | `.claude/skills/glue/runtime/recovery.js` |
+| Claude Desktop, configuration-file setup | `.agents/skills/glue-desktop/runtime/recovery.js` |
+| Claude Code plugin, Claude Desktop extension | `runtime/recovery.js` inside the plugin or extension folder |
 
-Read and deliberately select the intended revision before restoring. Save this JSON as `restore-request.json`, replacing each placeholder with the corresponding inspection value. Use JSON `null` for a genuinely missing head or working copy, never for an unavailable one:
+For the plugin and extension, pass full absolute paths for all three arguments. Do not guess where Desktop keeps extensions; look it up in Desktop.
 
-```json
-{
-  "action": "restore",
-  "context": "notes/handoff.md",
-  "version": "SELECTED_REVISION_HASH",
-  "expectedHeadHash": "HEAD_HASH_FROM_INSPECTION",
-  "workingCopyHash": "WORKING_COPY_HASH_FROM_INSPECTION"
-}
-```
+The tool prints JSON. On failure it prints `{"error": "…"}` to standard error and exits with code 1.
 
-Then run:
+Keep the output private. It contains hashes, paths and saved labels.
 
-```sh
-node .agents/skills/glue/runtime/recovery.js . restore-request.json
-```
+## Inspect a context
 
-Restore preserves the previous head bytes and validated working text in a recovery record. It checks saved snapshots and moves the handoff pointer; it does not restore original source files. If a concurrent edit is detected, `workingCopyUpdated:false` means the saved pointer changed but the live text was preserved. Resume and reconcile before continuing.
+Inspection only reads. It never changes anything.
 
-An unavailable working copy is not a missing file. Invalid UTF-8, a file above the 128 KiB working-copy read limit, or another read failure requires preserving and reconciling those bytes before saving/restoring. Do not replace an omitted hash with null. Do not rewrite stored hashes to conceal corruption. Use an intact backup for damaged saved bytes. Remove a stale lock only after confirming that its writer stopped. One exception: after a result or error that carries `lockNotReleased`, `owner.json` in that lock names the Glue server that is still running and no longer holds it. That live process is not an active writer; confirm only that no other Glue process is writing to the project.
+1. Save this as `inspect-request.json`, outside the project or in a private folder. Use your handoff's path.
 
-## Accidental capture and clean-store rebuild
+   ```json
+   {"action": "inspect", "context": "notes/handoff.md"}
+   ```
 
-Deleting current text or deselecting evidence does not remove historical copies. A secret may remain in prior revisions, evidence/capture snapshots, reconciled manual text or recovery records. Credential revocation is separate from cleaning retained copies.
+2. From the project folder, run:
 
-1. Stop affected Glue connections and further sharing. Record the affected store and other known copies privately. Do not rely on a current-head scan to establish absence from history.
-2. Prepare a separate empty destination project. Keep it disconnected from ordinary work until verification succeeds. Preserve the original store privately; do not rename it into another discoverable project or silently switch the existing connection.
-3. Review a manifest of permitted current records and supporting captures. Use `glue_transfer` to export only that explicit selection. Inspect both metadata and payload bytes. Do not copy `.glue`, whole history, recovery files or old manual text. If current selected content itself is contaminated, prepare a reviewed clean derivative with a new identity; do not relabel changed bytes as the original.
-4. Import into the separate destination, preserving scope and reporting excluded dependencies/support. Verify the complete destination inventory, exact selected content, history and any generated temporary/recovery material. Use synthetic marker fixtures to rehearse these checks before applying the procedure to real data; pattern scanning alone cannot certify removal of all personal information.
-5. Resume/read the rebuilt records and check that useful selected work survived. Record what was inspected, what was omitted and where other copies remain. If import or verification fails or is interrupted, stop; do not select the partial destination or automatically reactivate the contaminated original.
-6. Only after successful verification, deliberately select the rebuilt project through the host's normal project/connection workflow. Retiring or deleting the contaminated original and associated artifacts is a separate destructive action requiring explicit authorization.
+   ```sh
+   node .agents/skills/glue/runtime/recovery.js . inspect-request.json
+   ```
 
-Glue's automated tests rehearse this rebuild with synthetic data only. They do not certify removal of arbitrary personal information or interruption safety on every filesystem; rehearse the relevant failure and verification steps for the actual environment before any destructive retirement.
+3. Read the result:
 
-This procedure does not erase backups, exported files, imported project copies, host transcripts or source systems. Account for those separately. It does not promise secure physical erasure or remote revocation. A retained private original remains contaminated until separately retired; preservation is not completion of cleanup.
+   | Field | Meaning |
+   | --- | --- |
+   | `headHash` | Hash of the `HEAD.json` file, or `null` if it is missing. |
+   | `workingCopyHash` | Hash of the handoff file, or `null` if it is missing. If the file cannot be read, `workingCopy.status` is `unavailable` instead. |
+   | `revisions` | Every revision file, with `valid`, `at` (save time), `parent` and `reachableFromHead`. |
+   | `ancestry.status` | `complete`, `incomplete` (a break in the chain), `unavailable` (head missing or unreadable) or `empty`. |
+   | `ancestry.missingParents`, `reason`, `blockedAt` | Where the chain breaks. |
 
-## Backups and selected exports
+`reachableFromHead` is `true` for revisions in the current history, `false` for revisions outside it, and `null` when that cannot be known. A revision outside the history may be older work or an interrupted save. Do not delete it.
 
-A full backup must include handoffs and their complete `.glue` store. Treat it as private. A selected transfer omits history and private locators by default but still requires payload review; private information can occur in ordinary prose. Restrictions and provenance are attributed claims, not technical controls over a recipient's independent copy.
+## Restore an earlier revision
 
-Filesystem permissions protect local plaintext. Hashes detect byte changes, not authorship or truth. External editors do not honor Glue locks; avoid simultaneous native editing and checkpointing of one file. Atomic replacement is not a universal hardware/power-loss guarantee.
+Restore moves the head to a revision you choose and rewrites the handoff file to match. It does not change your evidence files.
+
+1. Inspect the context, as above. Pick a revision where `valid` is `true`.
+2. Save this as `restore-request.json`. Fill in the values from the inspection.
+
+   ```json
+   {
+     "action": "restore",
+     "context": "notes/handoff.md",
+     "version": "REVISION_TO_RESTORE",
+     "expectedHeadHash": "HEAD_HASH_FROM_INSPECTION",
+     "workingCopyHash": "WORKING_COPY_HASH_FROM_INSPECTION"
+   }
+   ```
+
+   Use JSON `null` only when the inspection returned `null`, meaning the file is missing.
+
+3. Run:
+
+   ```sh
+   node .agents/skills/glue/runtime/recovery.js . restore-request.json
+   ```
+
+4. Check the result. `restored: true` means the head moved. If `workingCopyUpdated` is `false`, the handoff file changed during the restore and was left alone. Resume and reconcile it.
+
+Restore first writes a `recovery-<hash>.json` file with the old head and the old handoff text. Nothing is lost.
+
+If the restore fails with `Recovery inputs changed. Inspect again.`, something changed since you inspected. Start again from step 1.
+
+**If the handoff file is unavailable.** The file may be over 128 KiB or not valid UTF-8. Restore cannot run until you deal with it. Copy the file somewhere safe, then remove or fix it, and inspect again.
+
+**If saved bytes are damaged.** Restore from a backup of the whole `.glue` folder. Never edit hashes by hand to hide damage.
+
+## Leftover locks
+
+Glue creates a `.write-lock` folder inside a context's folder while it saves, and removes it afterwards. If Glue was interrupted, or cannot delete files, the lock stays behind. Later saves to that context then fail with `Glue store is busy`.
+
+1. Make sure no Glue process is writing to this project. Check every host connected to it.
+2. Look at `.write-lock/owner.json`. It names the process that created the lock.
+3. If that process is gone, delete the `.write-lock` folder.
+
+If a result or error included `lockNotReleased`, the process named in `owner.json` is the Glue server that is still running. It no longer holds the lock. You only need to confirm that no other Glue process is writing.
+
+A leftover lock in a context that was never saved also blocks creating new contexts. Glue cannot tell whether that first save finished.
+
+Other lock folders:
+
+- `.glue/.write-lock` is left over from creating `.glue/PROJECT.json`. It blocks nothing. Delete it.
+- `.glue-install-lock` in the project blocks installs. Delete it once no installer is running.
+- `.glue-host-connection-lock` beside a host configuration file blocks connection changes. Delete it once no installer is running.
+
+## Remove something saved by accident
+
+Editing or deselecting content does not remove it from history. Earlier revisions, evidence copies, captures, recovery files and saved copies of your edits may all still hold it. To remove it, build a clean store in a new project and move only what you want to keep.
+
+If the content includes a credential, revoke the credential first.
+
+1. **Stop.** Close the Glue connections to the affected project. Don't share the project or its store.
+2. **Keep the original.** Leave the affected project and its `.glue` folder where they are. Don't rename or move them into another project.
+3. **Create a fresh, empty project folder.** Don't use it for anything else until you finish.
+4. **Choose what to keep.** List the handoffs and captures you want to carry over. Leave out anything contaminated. If a handoff's text itself contains the content, prepare a cleaned-up version to send as `derivativeMarkdown`.
+5. **Transfer each one.** Connect Glue to both projects. For each handoff, preview, read the exact content, export, then import into the fresh project. Transfer never copies history, recovery files or unselected evidence. It refuses sensitive captures and evidence.
+6. **Verify the fresh project.** Resume and read every imported handoff. Search the whole fresh folder for the removed content, including `.glue`. If anything fails or is interrupted, stop. Don't switch to a partial result.
+7. **Switch over.** Point your host at the fresh project.
+8. **Retire the original.** Deleting the original project's store is a separate, deliberate step. Do it only when you are sure.
+
+This procedure does not reach backups, exported bundles, other projects that imported a copy, or host transcripts. Deal with those separately.
+
+## Backups
+
+To back up saved work, copy the handoff files and the whole `.glue` folder together. Treat the backup as private: it holds every revision.
+
+To share one handoff, use a transfer instead of a backup. A transfer sends only what you select.
