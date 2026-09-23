@@ -1,0 +1,3 @@
+# Formatting-only commits, skipped by `git blame --ignore-revs-file .git-blame-ignore-revs`.
+# Apply consistent formatting
+9727eb720e6d0e7fcb8c0a3f9b804023a960fee2
