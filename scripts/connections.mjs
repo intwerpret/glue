@@ -8,12 +8,12 @@ import {
   assertLocalConnection,
 } from '../integration/glue/scripts/configuration.mjs';
 
-const start = '# BEGIN GLUE MANAGED CONNECTION',
-  end = '# END GLUE MANAGED CONNECTION';
+const start = '# BEGIN GLUE MANAGED CONNECTION';
+const end = '# END GLUE MANAGED CONNECTION';
 
 export function connectionChange(workspace, destination, options = {}) {
-  const host = options.host ?? 'codex',
-    name = options.name ?? 'glue';
+  const host = options.host ?? 'codex';
+  const name = options.name ?? 'glue';
   if (!['codex', 'claude-code', 'claude-desktop'].includes(host) || !/^[-a-zA-Z0-9_]+$/.test(name))
     throw Error('Invalid Glue host or server name.');
   if (host === 'codex' && name !== 'glue')
@@ -56,8 +56,8 @@ export function connectionChange(workspace, destination, options = {}) {
   const previous = existsSync(file) ? readConfigurationText(file) : '';
   const config =
     host === 'codex' ? parseConfiguration(previous) : parseJsonConfiguration(previous || '{}');
-  const key = host === 'codex' ? 'mcp_servers' : 'mcpServers',
-    servers = config[key];
+  const key = host === 'codex' ? 'mcp_servers' : 'mcpServers';
+  const servers = config[key];
   if (
     (host === 'codex' && (previous.includes(start) || previous.includes(end))) ||
     (servers && Object.hasOwn(servers, name))
@@ -71,34 +71,23 @@ export function connectionChange(workspace, destination, options = {}) {
     );
   const args = [join(destination, 'runtime/mcp.js'), workspace];
   let next;
-  if (host === 'codex')
-    next =
-      previous +
-      (previous && !previous.endsWith('\n') ? '\n' : '') +
-      start +
-      '\n[mcp_servers.glue]\ncommand = ' +
-      JSON.stringify(process.execPath) +
-      '\nargs = ' +
-      JSON.stringify(args) +
-      '\n' +
-      end +
-      '\n';
-  else
-    next =
-      JSON.stringify(
-        { ...config, [key]: { ...servers, [name]: { command: process.execPath, args } } },
-        null,
-        2,
-      ) + '\n';
-  assertLocalConnection(
+  if (host === 'codex') {
+    // Append a marked block; the rest of the file keeps its exact bytes.
+    const separator = previous && !previous.endsWith('\n') ? '\n' : '';
+    const table =
+      '[mcp_servers.glue]\n' +
+      ('command = ' + JSON.stringify(process.execPath) + '\n') +
+      ('args = ' + JSON.stringify(args) + '\n');
+    next = previous + separator + start + '\n' + table + end + '\n';
+  } else {
+    const connection = { command: process.execPath, args };
+    next = JSON.stringify({ ...config, [key]: { ...servers, [name]: connection } }, null, 2) + '\n';
+  }
+  const proposed =
     host === 'codex'
       ? parseConfiguration(next, 'proposed Codex configuration')
-      : parseJsonConfiguration(next),
-    process.execPath,
-    args,
-    host,
-    name,
-  );
+      : parseJsonConfiguration(next);
+  assertLocalConnection(proposed, process.execPath, args, host, name);
   return {
     file,
     host,

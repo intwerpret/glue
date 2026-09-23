@@ -11,6 +11,7 @@ import {
   coreTools,
 } from './configuration.mjs';
 import { collectFiles, fingerprint } from './installation-files.mjs';
+
 const installation = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const workspace = realpathSync(resolve(installation, '../../..'));
 try {

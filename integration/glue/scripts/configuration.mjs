@@ -73,8 +73,8 @@ export function parseJsonConfiguration(text) {
       else if (token === ',') {
         if (stack.at(-1)) stack.at(-1).key = true;
       } else if (token.startsWith('"') && stack.at(-1)?.key) {
-        const current = stack.at(-1),
-          key = JSON.parse(token);
+        const current = stack.at(-1);
+        const key = JSON.parse(token);
         if (current.keys.has(key)) throw Error();
         current.keys.add(key);
         current.key = false;
