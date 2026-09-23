@@ -20,4 +20,5 @@ export const runtimeModules = [
   'identity',
   'captures',
   'transfer',
+  'tools',
 ];
