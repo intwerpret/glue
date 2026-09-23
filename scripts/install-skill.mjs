@@ -19,6 +19,7 @@ import { connectionChange } from './connections.mjs';
 import { protectProjectGit } from './project-exclusions.mjs';
 import { withInstallationLock } from './installation-lock.mjs';
 import { assertUnlinked } from '../dist/storage.js';
+import { TOOL_NAMES } from '../dist/tools.js';
 const source = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const [argument, ...extra] = process.argv.slice(2);
 const options = {};
@@ -163,14 +164,7 @@ withInstallationLock(workspace, () => {
         sourceId: identity.sourceId,
         packageId: identity.packageId,
         mode: identity.mode,
-        tools: [
-          'glue_resume',
-          'glue_checkpoint',
-          'glue_find',
-          'glue_read',
-          'glue_check_capture',
-          'glue_transfer',
-        ],
+        tools: TOOL_NAMES,
       }),
     );
   } finally {

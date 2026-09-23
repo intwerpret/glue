@@ -1,6 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { parse } from 'smol-toml';
 
+// The tools an installed connection must expose. Kept in step with TOOL_NAMES in src/tools.ts;
+// this file also runs from installed copies, which have no source tree to import it from.
 export const coreTools = [
   'glue_resume',
   'glue_checkpoint',

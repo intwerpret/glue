@@ -1,7 +1,20 @@
-import { createHash } from 'node:crypto';
 import { z } from 'zod';
+import {
+  captureId,
+  contextPath,
+  digest,
+  recordProvenance,
+  sha256,
+  sourceStatus,
+} from './schemas.js';
+import {
+  MAX_BASIS_LENGTH,
+  MAX_CAPTURE_BASE64_LENGTH,
+  MAX_CAPTURE_BYTES,
+  MAX_LABEL_LENGTH,
+  MAX_SCOPE_LENGTH,
+} from './limits.js';
 
-const digest = z.string().regex(/^[a-f0-9]{64}$/);
 const token = z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/);
 export const originSchema = z.object({ namespace: token, id: token, version: token }).strict();
 export const importedSchema = z
@@ -9,39 +22,35 @@ export const importedSchema = z
     origin: originSchema,
     payloadHash: digest,
     omittedSupport: z.number().int().nonnegative(),
-    sourceStatus: z.enum(['active', 'proposed', 'superseded', 'withdrawn', 'unspecified']),
+    sourceStatus,
     derived: z.boolean(),
-    sourceProvenance: z.enum(['user', 'assistant', 'source', 'unknown']).optional(),
+    sourceProvenance: recordProvenance.optional(),
     localModified: z.boolean().optional(),
   })
   .strict();
 export const captureMetadata = z
   .object({
-    id: z.string().regex(/^[a-z][a-z0-9_-]{0,63}$/),
-    label: z.string().min(1).max(200),
+    id: captureId,
+    label: z.string().min(1).max(MAX_LABEL_LENGTH),
     representation: z.enum(['original-bytes', 'extracted-text', 'excerpt', 'derived']),
-    basis: z.string().min(1).max(500),
+    basis: z.string().min(1).max(MAX_BASIS_LENGTH),
     origin: originSchema.optional(),
     retrievedAt: z.string().datetime().optional(),
     originReceivedAt: z.string().datetime().optional(),
-    scope: z.string().min(1).max(2000),
+    scope: z.string().min(1).max(MAX_SCOPE_LENGTH),
     transfer: z.enum(['allowed', 'project-only']).default('project-only'),
   })
   .strict();
 export const captureInput = captureMetadata
   .extend({
-    base64: z.string().max(1400000),
+    base64: z.string().max(MAX_CAPTURE_BASE64_LENGTH),
     sensitiveAcknowledgement: digest.optional(),
   })
   .strict();
 export const savedCapture = captureMetadata
   .extend({
     hash: digest,
-    bytes: z
-      .number()
-      .int()
-      .min(0)
-      .max(1024 * 1024),
+    bytes: z.number().int().min(0).max(MAX_CAPTURE_BYTES),
     snapshot: digest,
     receivedAt: z.string().datetime(),
     sensitive: z.boolean(),
@@ -85,8 +94,6 @@ export const secretName = (name: string) =>
   /(?:^|[\\/])(?:\.env(?:\..*)?|\.npmrc|\.pypirc|id_(?:rsa|ed25519)|credentials(?:\.json)?|[^/\\]+\.(?:pem|key|p12|pfx))$/i.test(
     name,
   );
-export const contentHash = (bytes: Buffer | string) =>
-  createHash('sha256').update(bytes).digest('hex');
 
 export function assertPortableMetadata(value: unknown) {
   if (typeof value === 'string' && (privateLocator.test(value) || credential.test(value)))
@@ -109,11 +116,11 @@ export function prepareCapture(input: z.infer<typeof captureInput>, receivedAt: 
   const { base64, sensitiveAcknowledgement, ...metadata } = input;
   assertPortableMetadata(metadata);
   const bytes = Buffer.from(base64, 'base64');
-  if (bytes.length > 1024 * 1024 || bytes.toString('base64') !== base64)
+  if (bytes.length > MAX_CAPTURE_BYTES || bytes.toString('base64') !== base64)
     throw Error(
       'Capture requires canonical base64 for at most 1 MiB. Split larger material into explicitly labeled captures.',
     );
-  const hash = contentHash(bytes),
+  const hash = sha256(bytes),
     sensitive = isSensitive(bytes, metadata.label);
   if (sensitive && sensitiveAcknowledgement !== hash)
     throw Error(
@@ -134,12 +141,12 @@ export function prepareCapture(input: z.infer<typeof captureInput>, receivedAt: 
 
 export const captureCheckInput = z
   .object({
-    context: z.string().min(1).max(500),
+    context: contextPath,
     version: digest.optional(),
-    capture: z.string().regex(/^[a-z][a-z0-9_-]{0,63}$/),
+    capture: captureId,
     hash: digest,
     representation: captureMetadata.shape.representation,
-    basis: z.string().min(1).max(500),
+    basis: z.string().min(1).max(MAX_BASIS_LENGTH),
     origin: originSchema.optional(),
     retrievedAt: z.string().datetime(),
   })

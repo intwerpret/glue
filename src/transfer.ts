@@ -2,29 +2,40 @@ import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { z } from 'zod';
-import { Handoffs, digest } from './handoff.js';
+import { Handoffs } from './handoff.js';
+import { captureMetadata, originSchema, assertPortableMetadata, isSensitive } from './captures.js';
 import {
-  captureMetadata,
-  originSchema,
-  contentHash,
-  assertPortableMetadata,
-  isSensitive,
-} from './captures.js';
+  contextPath,
+  digest,
+  recordKind,
+  recordProvenance,
+  sha256,
+  sourcePath,
+  sourceStatus,
+} from './schemas.js';
+import {
+  MAX_BUNDLE_BYTES,
+  MAX_CAPTURE_BASE64_LENGTH,
+  MAX_CAPTURES,
+  MAX_MARKDOWN_BYTES,
+  MAX_POINTER_BYTES,
+  MAX_SCOPE_LENGTH,
+  MAX_TITLE_LENGTH,
+} from './limits.js';
 import { assertUnlinked, atomicWrite, withWriteLock } from './storage.js';
 
-const maximumBundleBytes = 1024 * 1024;
 const restrictedScope = (scope: string) =>
   /\bproject[- ]only\b|\bdo not (?:share|transfer|export)\b/i.test(scope);
 const portableCapture = captureMetadata
-  .extend({ base64: z.string().max(1400000), hash: digest })
+  .extend({ base64: z.string().max(MAX_CAPTURE_BASE64_LENGTH), hash: digest })
   .strict();
 const sourceMetadata = z
   .object({
-    title: z.string().min(1).max(200),
-    scope: z.string().min(1).max(2000),
-    kind: z.enum(['decision', 'finding', 'note', 'artifact']),
-    provenance: z.enum(['user', 'assistant', 'source', 'unknown']),
-    status: z.enum(['active', 'proposed', 'superseded', 'withdrawn', 'unspecified']),
+    title: z.string().min(1).max(MAX_TITLE_LENGTH),
+    scope: z.string().min(1).max(MAX_SCOPE_LENGTH),
+    kind: recordKind,
+    provenance: recordProvenance,
+    status: sourceStatus,
   })
   .strict();
 export const transferBundle = z
@@ -32,33 +43,30 @@ export const transferBundle = z
     format: z.literal(1),
     origin: originSchema,
     source: sourceMetadata,
-    markdown: z.string().min(1).max(32768),
+    markdown: z.string().min(1).max(MAX_MARKDOWN_BYTES),
     markdownHash: digest,
     derived: z.boolean(),
-    captures: z.array(portableCapture).max(16),
+    captures: z.array(portableCapture).max(MAX_CAPTURES),
     omittedSupport: z.number().int().nonnegative(),
   })
   .strict();
 type Bundle = z.infer<typeof transferBundle>;
+/** An evidence snapshot to carry as a capture, under a new portable id, label and scope. */
+const evidenceSelection = z
+  .object({
+    path: sourcePath,
+    id: captureMetadata.shape.id,
+    label: captureMetadata.shape.label,
+    scope: captureMetadata.shape.scope,
+  })
+  .strict();
 const selection = z
   .object({
-    context: z.string().min(1).max(500),
+    context: contextPath,
     version: digest,
-    captures: z.array(captureMetadata.shape.id).max(16).default([]),
-    evidence: z
-      .array(
-        z
-          .object({
-            path: z.string().min(1).max(1000),
-            id: captureMetadata.shape.id,
-            label: captureMetadata.shape.label,
-            scope: captureMetadata.shape.scope,
-          })
-          .strict(),
-      )
-      .max(16)
-      .default([]),
-    derivativeMarkdown: z.string().min(1).max(32768).optional(),
+    captures: z.array(captureMetadata.shape.id).max(MAX_CAPTURES).default([]),
+    evidence: z.array(evidenceSelection).max(MAX_CAPTURES).default([]),
+    derivativeMarkdown: z.string().min(1).max(MAX_MARKDOWN_BYTES).optional(),
   })
   .strict();
 export const transferInput = z.discriminatedUnion('action', [
@@ -68,7 +76,7 @@ export const transferInput = z.discriminatedUnion('action', [
   z
     .object({
       action: z.literal('check'),
-      context: z.string().min(1).max(500),
+      context: contextPath,
       version: digest.optional(),
       upstream: originSchema.nullable(),
     })
@@ -78,7 +86,7 @@ export const transferInput = z.discriminatedUnion('action', [
       action: z.literal('import'),
       bundle: transferBundle,
       reviewedHash: digest,
-      context: z.string().min(1).max(500),
+      context: contextPath,
       expectedVersion: digest.nullable(),
       workingCopyHash: digest.nullable().optional(),
     })
@@ -115,10 +123,7 @@ export const transferInputSchema = z
       .describe(
         'Sequence: preview (or preview-import) -> review the manifest and read the exact selected content -> export/import with the returned payloadHash as reviewedHash. check compares a caller-supplied upstream origin with an imported record.',
       ),
-    context: z
-      .string()
-      .min(1)
-      .max(500)
+    context: contextPath
       .optional()
       .describe(
         'preview/export/check: the saved source context path (Markdown file). import: the destination context path to create or update.',
@@ -130,23 +135,14 @@ export const transferInputSchema = z
       ),
     captures: z
       .array(captureMetadata.shape.id)
-      .max(16)
+      .max(MAX_CAPTURES)
       .optional()
       .describe(
         'preview/export: capture ids to include. Only captures saved with transfer:"allowed" and not marked sensitive can be selected; transfer:"allowed" permits selection, it does not include a capture automatically. Omitted captures count in omittedSupport.',
       ),
     evidence: z
-      .array(
-        z
-          .object({
-            path: z.string().min(1).max(1000),
-            id: captureMetadata.shape.id,
-            label: captureMetadata.shape.label,
-            scope: captureMetadata.shape.scope,
-          })
-          .strict(),
-      )
-      .max(16)
+      .array(evidenceSelection)
+      .max(MAX_CAPTURES)
       .optional()
       .describe(
         'preview/export: selected evidence snapshots to carry as captures, each with a new portable id, label and scope (private paths are not exported).',
@@ -154,7 +150,7 @@ export const transferInputSchema = z
     derivativeMarkdown: z
       .string()
       .min(1)
-      .max(32768)
+      .max(MAX_MARKDOWN_BYTES)
       .optional()
       .describe(
         'preview/export: reviewed replacement text when the saved Markdown embeds material that must not leave the project; marks the bundle derived.',
@@ -198,7 +194,7 @@ function projectNamespace(store: Handoffs) {
   mkdirSync(directory, { recursive: true });
   const read = () => {
     assertUnlinked(file);
-    if (!statSync(file).isFile() || statSync(file).size > 4096)
+    if (!statSync(file).isFile() || statSync(file).size > MAX_POINTER_BYTES)
       throw Error('Invalid project namespace metadata.');
     try {
       return z
@@ -223,12 +219,12 @@ function projectNamespace(store: Handoffs) {
 
 function validateBundle(input: unknown): Bundle {
   // Bound serialized input before decoding captures or inspecting content.
-  if (Buffer.byteLength(JSON.stringify(input), 'utf8') > maximumBundleBytes)
+  if (Buffer.byteLength(JSON.stringify(input), 'utf8') > MAX_BUNDLE_BYTES)
     throw Error('Transfer bundle exceeds 1 MiB. Select less material.');
   const bundle = transferBundle.parse(input);
   if (
-    Buffer.byteLength(bundle.markdown, 'utf8') > 32768 ||
-    contentHash(bundle.markdown) !== bundle.markdownHash
+    Buffer.byteLength(bundle.markdown, 'utf8') > MAX_MARKDOWN_BYTES ||
+    sha256(bundle.markdown) !== bundle.markdownHash
   )
     throw Error('Transfer Markdown integrity or size check failed.');
   assertPortableMetadata(bundle.source);
@@ -247,7 +243,7 @@ function validateBundle(input: unknown): Bundle {
     ids.add(capture.id);
     assertPortableMetadata(metadata);
     const bytes = Buffer.from(base64, 'base64');
-    if (bytes.toString('base64') !== base64 || contentHash(bytes) !== hash)
+    if (bytes.toString('base64') !== base64 || sha256(bytes) !== hash)
       throw Error('Transfer capture integrity check failed.');
     if (
       capture.transfer !== 'allowed' ||
@@ -262,7 +258,7 @@ function validateBundle(input: unknown): Bundle {
 }
 
 function payloadHash(bundle: Bundle) {
-  return contentHash(JSON.stringify(bundle));
+  return sha256(JSON.stringify(bundle));
 }
 function preview(bundle: Bundle) {
   return {
@@ -307,7 +303,7 @@ export class Transfers {
     let selectedBytes = 0;
     const reserve = (bytes: number) => {
       selectedBytes += bytes;
-      if (selectedBytes > maximumBundleBytes)
+      if (selectedBytes > MAX_BUNDLE_BYTES)
         throw Error('Transfer bundle exceeds 1 MiB. Select less material.');
     };
     for (const id of input.captures) {
@@ -342,7 +338,7 @@ export class Transfers {
         representation: 'original-bytes',
         basis: 'Selected immutable evidence snapshot',
         transfer: 'allowed',
-        hash: contentHash(bytes),
+        hash: sha256(bytes),
         base64: bytes.toString('base64'),
       });
     }
@@ -356,7 +352,7 @@ export class Transfers {
       format: 1,
       origin: {
         namespace: projectNamespace(this.store),
-        id: contentHash(head.rel),
+        id: sha256(head.rel),
         version: input.version,
       },
       source: {
@@ -367,7 +363,7 @@ export class Transfers {
         status: saved.record?.status ?? 'unspecified',
       },
       markdown,
-      markdownHash: contentHash(markdown),
+      markdownHash: sha256(markdown),
       derived: input.derivativeMarkdown !== undefined,
       captures,
       omittedSupport: previouslyOmitted + dependencies + unselectedEvidence + unselectedCaptures,

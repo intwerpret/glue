@@ -16,6 +16,8 @@ import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { collectFiles } from '../scripts/installation-files.mjs';
 import { runtimeModules } from '../scripts/runtime-files.mjs';
+import { coreTools } from '../integration/glue/scripts/configuration.mjs';
+import { TOOL_NAMES } from '../dist/tools.js';
 const root = resolve('.');
 function fixture(t) {
   const workspace = mkdtempSync(join(realpathSync(tmpdir()), 'glue-install-test-'));
@@ -70,6 +72,9 @@ test('fresh Codex installation preserves unrelated configuration and supports MC
       .sort(),
     runtimeModules.map(name => name + '.js').sort(),
   );
+  // Installed checks carry their own copy of the tool list; it must match the runtime's.
+  assert.deepEqual(coreTools, [...TOOL_NAMES]);
+  assert.deepEqual(installed.tools, coreTools);
   assert.equal(
     JSON.parse(readFileSync(join(skill, 'installation.json'), 'utf8')).packageId,
     installed.packageId,

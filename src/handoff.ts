@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import {
   existsSync,
   mkdirSync,
@@ -32,12 +32,25 @@ import {
   prepareCapture,
   importedSchema,
   isSensitive,
-  contentHash,
 } from './captures.js';
+import { contextPath, digest, sha256, sourcePath } from './schemas.js';
+import {
+  MAX_CAPTURES,
+  MAX_DEPENDENCIES,
+  MAX_EVIDENCE_FILES,
+  MAX_FILE_BYTES,
+  MAX_HISTORY_REVISIONS,
+  MAX_MARKDOWN_BYTES,
+  MAX_POINTER_BYTES,
+  MAX_REVISION_BYTES,
+  MAX_SELECTED_BYTES,
+  MAX_WORKING_COPY_BYTES,
+} from './limits.js';
 
-export const digest = z.string().regex(/^[a-f0-9]{64}$/);
+/** Kept as the compiled module's hash export. */
+export { sha256 as hash };
 const headSchema = z.object({ format: z.literal(1), version: digest }).strict();
-export const resumeInput = z.object({ context: z.string().min(1).max(500) }).strict();
+export const resumeInput = z.object({ context: contextPath }).strict();
 // The full request as it is hashed for retries. `imported` is set only by a transfer import, never
 // by a tool caller.
 const commitInput = resumeInput
@@ -50,32 +63,32 @@ const commitInput = resumeInput
     markdown: z
       .string()
       .min(1)
-      .max(32768)
+      .max(MAX_MARKDOWN_BYTES)
       .describe('Full replacement handoff text (UTF-8, at most 32 KiB).'),
     evidence: z
-      .array(z.string().min(1).max(1000))
-      .max(64)
+      .array(sourcePath)
+      .max(MAX_EVIDENCE_FILES)
       .optional()
       .describe(
         'Workspace-relative files to snapshot. Omit to keep the current selection; [] clears it.',
       ),
     reviewedEvidence: z
-      .array(z.object({ path: z.string().min(1).max(1000), hash: digest }).strict())
-      .max(64)
+      .array(z.object({ path: sourcePath, hash: digest }).strict())
+      .max(MAX_EVIDENCE_FILES)
       .optional()
       .describe(
         'Current hashes (from resume) of selected files that changed since the last save, acknowledging review.',
       ),
     sensitiveEvidence: z
-      .array(z.object({ path: z.string().min(1).max(1000), hash: digest }).strict())
-      .max(64)
+      .array(z.object({ path: sourcePath, hash: digest }).strict())
+      .max(MAX_EVIDENCE_FILES)
       .optional()
       .describe(
         'Exact-content exceptions for selected files that trip the sensitive-content heuristic.',
       ),
     captures: z
       .array(captureInput)
-      .max(16)
+      .max(MAX_CAPTURES)
       .optional()
       .describe(
         'Host-retrieved material as canonical base64 with declared representation/basis/scope. Omit to keep current captures; [] clears them. transfer:"allowed" only permits later selection for transfer.',
@@ -89,7 +102,7 @@ const commitInput = resumeInput
       ),
     dependsOn: z
       .array(referenceSchema)
-      .max(32)
+      .max(MAX_DEPENDENCIES)
       .optional()
       .describe(
         'Exact pins {context, version} of other contexts at their current heads. Omit to keep; [] clears.',
@@ -121,16 +134,14 @@ const revisionSchema = z
     markdown: z.string(),
     evidence: z.array(evidenceSchema),
     record: recordSchema.nullable().optional(),
-    dependsOn: z.array(referenceSchema).max(32).optional(),
-    captures: z.array(savedCapture).max(16).optional(),
+    dependsOn: z.array(referenceSchema).max(MAX_DEPENDENCIES).optional(),
+    captures: z.array(savedCapture).max(MAX_CAPTURES).optional(),
     imported: importedSchema.optional(),
     workingCopyBefore: z.string().optional(),
     restoredFrom: digest.optional(),
   })
   .strict();
 type Revision = z.infer<typeof revisionSchema>;
-export const hash = (bytes: string | Buffer) => createHash('sha256').update(bytes).digest('hex');
-const limit = 16 * 1024 * 1024;
 // A malformed saved file is damage, not a caller mistake, and its contents are never echoed.
 function stored<T>(schema: z.ZodType<T>, bytes: Buffer, name: string): T {
   try {
@@ -143,7 +154,7 @@ function stored<T>(schema: z.ZodType<T>, bytes: Buffer, name: string): T {
     );
   }
 }
-function read(file: string, max = limit) {
+function read(file: string, max = MAX_FILE_BYTES) {
   assertUnlinked(file);
   const fd = openSync(file, 'r');
   try {
@@ -222,18 +233,29 @@ export class Handoffs {
       '\\',
       '/',
     );
-    const known = contextIdentity(this, root, path.rel, [spelling, requested], hash, directory => {
-      const pointer = stored(headSchema, read(join(directory, 'HEAD.json'), 4096), 'HEAD.json');
-      return this.revision(directory, pointer.version).context;
-    });
-    const directory = join(root, hash(known));
+    const known = contextIdentity(
+      this,
+      root,
+      path.rel,
+      [spelling, requested],
+      sha256,
+      directory => {
+        const pointer = stored(
+          headSchema,
+          read(join(directory, 'HEAD.json'), MAX_POINTER_BYTES),
+          'HEAD.json',
+        );
+        return this.revision(directory, pointer.version).context;
+      },
+    );
+    const directory = join(root, sha256(known));
     assertUnlinked(directory);
     return { ...path, rel: known, directory, head: join(directory, 'HEAD.json') };
   }
   revision(directory: string, version: string): Revision {
     digest.parse(version);
-    const bytes = read(join(directory, 'revisions', version + '.json'), 2 * limit);
-    if (hash(bytes) !== version)
+    const bytes = read(join(directory, 'revisions', version + '.json'), MAX_REVISION_BYTES);
+    if (sha256(bytes) !== version)
       throw Error('Revision integrity failure. Use explicit recovery; history was not reset.');
     return stored(revisionSchema, bytes, 'a revision');
   }
@@ -264,11 +286,11 @@ export class Handoffs {
   }
   working(file: string) {
     if (!existsSync(file)) return { hash: null, text: null };
-    const bytes = read(file, 131072);
+    const bytes = read(file, MAX_WORKING_COPY_BYTES);
     // Keep a leading BOM so a BOM-prefixed copy counts as diverged and its exact bytes are
     // preserved.
     const text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes);
-    return { hash: hash(bytes), text };
+    return { hash: sha256(bytes), text };
   }
   observeWorking(file: string) {
     try {
@@ -304,7 +326,7 @@ export class Handoffs {
       let actual = checked?.get(file);
       if (!actual) {
         const bytes = read(file);
-        actual = { hash: hash(bytes), bytes: bytes.length };
+        actual = { hash: sha256(bytes), bytes: bytes.length };
         checked?.set(file, actual);
       }
       if (actual.bytes !== item.bytes || actual.hash !== item.hash)
@@ -317,7 +339,7 @@ export class Handoffs {
   captureBytes(directory: string, item: z.infer<typeof savedCapture>) {
     savedCapture.parse(item);
     const bytes = read(join(directory, 'evidence', item.snapshot));
-    if (bytes.length !== item.bytes || hash(bytes) !== item.hash || item.snapshot !== item.hash)
+    if (bytes.length !== item.bytes || sha256(bytes) !== item.hash || item.snapshot !== item.hash)
       throw Error('Capture snapshot integrity failure.');
     return bytes;
   }
@@ -332,7 +354,7 @@ export class Handoffs {
   }
   evidenceBytes(directory: string, item: Revision['evidence'][number]) {
     const bytes = read(this.snapshotFile(directory, item));
-    if (bytes.length !== item.bytes || hash(bytes) !== item.hash)
+    if (bytes.length !== item.bytes || sha256(bytes) !== item.hash)
       throw Error('Evidence snapshot integrity failure: ' + item.path);
     return bytes;
   }
@@ -345,7 +367,7 @@ export class Handoffs {
     const visited = new Set<string>();
     while (current) {
       if (visited.has(current)) throw Error('History cycle.');
-      if (visited.size >= 10000)
+      if (visited.size >= MAX_HISTORY_REVISIONS)
         throw Error(
           'History lookup exceeds 10000 revisions; no committed membership claim was made.',
         );
@@ -389,7 +411,7 @@ export class Handoffs {
         reason: 'path_collision' | undefined;
       try {
         const path = this.path(item.path).file;
-        currentHash = hash(read(path));
+        currentHash = sha256(read(path));
         status = currentHash === item.hash ? 'unchanged' : 'changed';
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== 'ENOENT') status = 'unavailable';
@@ -436,7 +458,7 @@ export class Handoffs {
     const callerRequest = saveInput.parse(input);
     const request = commitInput.parse({ ...callerRequest, ...(imported ? { imported } : {}) });
     const loc = this.location(request.context);
-    if (Buffer.byteLength(request.markdown) > 32768)
+    if (Buffer.byteLength(request.markdown) > MAX_MARKDOWN_BYTES)
       throw Error('Keep the handoff within 32 KiB; reference full artifacts.');
     const selected =
       request.evidence === undefined
@@ -450,7 +472,7 @@ export class Handoffs {
     const suppliedCaptures = request.captures?.map(item =>
       prepareCapture(item, new Date().toISOString()),
     );
-    const key = hash(JSON.stringify({ ...request, context: loc.rel, evidence: selected }));
+    const key = sha256(JSON.stringify({ ...request, context: loc.rel, evidence: selected }));
     const created = !existsSync(loc.directory);
     mkdirSync(loc.directory, { recursive: true });
     try {
@@ -485,7 +507,7 @@ export class Handoffs {
       visited.add(ancestor);
       const old = this.revision(loc.directory, ancestor);
       if (old.context !== loc.rel) throw Error('History context mismatch.');
-      if (visited.size > 10000)
+      if (visited.size > MAX_HISTORY_REVISIONS)
         throw Error('Retry lookup exceeds 10000 revisions. Inspect history; no new save was made.');
       if (old.request === key) {
         this.verifyEvidence(loc.directory, old.evidence);
@@ -559,10 +581,10 @@ export class Handoffs {
       const file = this.path(path).file,
         bytes = read(file);
       total += bytes.length;
-      if (total > 64 * 1024 * 1024) throw Error('Selected evidence and captures exceed 64 MiB.');
-      const id = hash(bytes),
+      if (total > MAX_SELECTED_BYTES) throw Error('Selected evidence and captures exceed 64 MiB.');
+      const id = sha256(bytes),
         ext = extname(path).toLowerCase();
-      if (isSensitive(bytes, path) && exceptions.get(path) !== contentHash(bytes))
+      if (isSensitive(bytes, path) && exceptions.get(path) !== id)
         throw Error(
           'Selected evidence may contain sensitive material. Review and supply a scoped exact-content exception if authorized.',
         );
@@ -627,7 +649,7 @@ export class Handoffs {
     };
     // All immutable evidence and revision bytes are durable before the single commit pointer.
     const bytes = JSON.stringify(revision),
-      version = hash(bytes);
+      version = sha256(bytes);
     immutable(join(loc.directory, 'revisions', version + '.json'), bytes);
     immutable(join(loc.directory, '.initialized'), 'Glue handoff initialized\n');
     atomicWrite(loc.head, JSON.stringify({ format: 1, version }));
@@ -711,7 +733,7 @@ export class Handoffs {
     const working = this.observeWorking(loc.file);
     return {
       context: loc.rel,
-      headHash: headBytes ? hash(headBytes) : null,
+      headHash: headBytes ? sha256(headBytes) : null,
       ...(working.available
         ? { workingCopyHash: working.hash }
         : { workingCopy: { status: 'unavailable', error: working.error } }),
@@ -739,7 +761,7 @@ export class Handoffs {
       const headBytes = existsSync(loc.head) ? read(loc.head) : null;
       const working = this.working(loc.file);
       if (
-        (headBytes ? hash(headBytes) : null) !== expectedHeadHash ||
+        (headBytes ? sha256(headBytes) : null) !== expectedHeadHash ||
         working.hash !== workingCopyHash
       )
         throw Error('Recovery inputs changed. Inspect again.');
@@ -754,7 +776,7 @@ export class Handoffs {
         workingCopy: working.text,
         selected: version,
       });
-      immutable(join(loc.directory, 'recovery-' + hash(recovery) + '.json'), recovery);
+      immutable(join(loc.directory, 'recovery-' + sha256(recovery) + '.json'), recovery);
       immutable(join(loc.directory, '.initialized'), 'Glue handoff initialized\n');
       atomicWrite(loc.head, JSON.stringify({ format: 1, version }));
       const workingCopyUpdated = this.updateWorkingCopy(loc.file, working.hash, selected.markdown);

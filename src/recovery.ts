@@ -1,6 +1,7 @@
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Handoffs, digest } from './handoff.js';
+import { Handoffs } from './handoff.js';
+import { digest } from './schemas.js';
 import { readRequest } from './input.js';
 import { z } from 'zod';
 export function run(args: string[]) {

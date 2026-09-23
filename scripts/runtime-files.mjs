@@ -21,4 +21,6 @@ export const runtimeModules = [
   'captures',
   'transfer',
   'tools',
+  'schemas',
+  'limits',
 ];

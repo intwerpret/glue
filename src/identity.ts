@@ -1,6 +1,7 @@
 import { existsSync, readdirSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import { assertUnlinked } from './storage.js';
+import { MAX_CONTEXT_IDENTITIES } from './limits.js';
 
 /** A portable comparison key, not a rewrite of historical revision bytes. */
 export const pathKey = (value: string) => value.normalize('NFC').toLowerCase();
@@ -80,7 +81,7 @@ export function contextIdentity(
 ) {
   assertUnlinked(root);
   const ids = existsSync(root) ? readdirSync(root).filter(id => /^[a-f0-9]{64}$/.test(id)) : [];
-  if (ids.length > 10000)
+  if (ids.length > MAX_CONTEXT_IDENTITIES)
     throw Error('Context identity lookup exceeds 10000 entries. No identity claim was made.');
   const present = new Set(ids),
     cache = identityCache.get(owner) ?? new Map<string, string>();

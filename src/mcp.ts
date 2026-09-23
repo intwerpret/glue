@@ -15,6 +15,7 @@ import {
   WRITING_TOOLS,
   type ToolName,
 } from './tools.js';
+import { MAX_LINE_BYTES, MAX_QUEUED_INPUT_BYTES, MAX_QUEUED_INPUT_CHUNKS } from './limits.js';
 
 // Only advertise revisions covered by this server's protocol tests.
 const supportedVersions = ['2025-11-25'] as const;
@@ -195,7 +196,7 @@ async function* inputChunks(
     if (failure || ended) return;
     const size = Buffer.isBuffer(chunk) ? chunk.length : Buffer.byteLength(chunk);
     if (!size) return;
-    if (queuedBytes + size > 4 * 1024 * 1024 || chunks.length >= 1024) {
+    if (queuedBytes + size > MAX_QUEUED_INPUT_BYTES || chunks.length >= MAX_QUEUED_INPUT_CHUNKS) {
       onError(new Error('Input queue limit exceeded.'));
       return;
     }
@@ -245,7 +246,6 @@ async function* inputChunks(
 async function* requests(input: NodeJS.ReadableStream, aborted: AbortSignal) {
   // An oversized line is discarded up to its newline and reported as null, so the connection
   // survives.
-  const maximumLineBytes = 2 * 1024 * 1024;
   let pending = Buffer.alloc(0),
     pendingBytes = 0,
     oversized = false;
@@ -257,7 +257,7 @@ async function* requests(input: NodeJS.ReadableStream, aborted: AbortSignal) {
       const newline = bytes.indexOf(10, start);
       const end = newline < 0 ? bytes.length : newline;
       const required = pendingBytes + end - start;
-      if (oversized || required > maximumLineBytes) {
+      if (oversized || required > MAX_LINE_BYTES) {
         oversized = true;
         pending = Buffer.alloc(0);
         pendingBytes = 0;
@@ -265,7 +265,7 @@ async function* requests(input: NodeJS.ReadableStream, aborted: AbortSignal) {
         if (required > pending.length) {
           // Grow geometrically so small input fragments cannot cause quadratic copying.
           const grown = Buffer.allocUnsafe(
-            Math.min(maximumLineBytes, Math.max(1024, pending.length * 2, required)),
+            Math.min(MAX_LINE_BYTES, Math.max(1024, pending.length * 2, required)),
           );
           pending.copy(grown, 0, 0, pendingBytes);
           pending = grown;

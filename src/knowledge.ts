@@ -1,6 +1,19 @@
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { Handoffs, digest, hash } from './handoff.js';
+import { Handoffs } from './handoff.js';
+import { digest, sha256 } from './schemas.js';
+import {
+  LONG_EXCERPT_LENGTH,
+  MAX_BASIS_CHECK_BYTES,
+  MAX_BASIS_RECORDS,
+  MAX_FILE_BYTES,
+  MAX_POINTER_BYTES,
+  MAX_SCANNED_REVISIONS,
+  MAX_SEARCH_GAPS,
+  MAX_SEARCHED_BODY_BYTES,
+  MAX_SEARCHED_EVIDENCE_BYTES,
+  SHORT_EXCERPT_LENGTH,
+} from './limits.js';
 import {
   findInput,
   readInput,
@@ -13,8 +26,7 @@ import { captureCheckInput, isSensitive } from './captures.js';
 import { pathKey, PathCollision } from './identity.js';
 
 type Saved = ReturnType<Handoffs['committed']>;
-const byteBudget = 64 * 1024 * 1024;
-const excerpt = (text: string, terms: string[], limit = 480) => {
+const excerpt = (text: string, terms: string[], limit = LONG_EXCERPT_LENGTH) => {
   const lower = text.toLowerCase();
   const positions = terms.map(term => lower.indexOf(term)).filter(n => n >= 0);
   const firstMatch = positions.length ? Math.min(...positions) : 0;
@@ -50,13 +62,14 @@ export class Knowledge {
       const ref = queue.shift()!,
         key = ref.context + ':' + ref.version;
       if (seen.has(key)) continue;
-      if (seen.size >= 64 || issues.length >= 64) {
+      if (seen.size >= MAX_BASIS_RECORDS || issues.length >= MAX_BASIS_RECORDS) {
         complete = false;
         break;
       }
       seen.add(key);
       const issue = (reason: string, source?: string) => {
-        if (issues.length < 64) issues.push({ ...ref, reason, ...(source ? { source } : {}) });
+        if (issues.length < MAX_BASIS_RECORDS)
+          issues.push({ ...ref, reason, ...(source ? { source } : {}) });
         else complete = false;
       };
       let node: Saved;
@@ -84,7 +97,7 @@ export class Knowledge {
         issue('working_copy_unavailable');
       }
       for (const item of node.saved.evidence) {
-        if (bytes + item.bytes * 2 > byteBudget) {
+        if (bytes + item.bytes * 2 > MAX_BASIS_CHECK_BYTES) {
           complete = false;
           issue('evidence_check_budget', item.path);
           break;
@@ -100,17 +113,21 @@ export class Knowledge {
         try {
           const file = this.store.path(item.path).file,
             stat = statSync(file);
-          if (!stat.isFile() || stat.size > 16 * 1024 * 1024 || bytes + stat.size > byteBudget) {
+          if (
+            !stat.isFile() ||
+            stat.size > MAX_FILE_BYTES ||
+            bytes + stat.size > MAX_BASIS_CHECK_BYTES
+          ) {
             complete = false;
             issue('live_source_not_checked', item.path);
             continue;
           }
           const body = readFileSync(file);
           bytes += body.length;
-          if (body.length > 16 * 1024 * 1024 || bytes > byteBudget) {
+          if (body.length > MAX_FILE_BYTES || bytes > MAX_BASIS_CHECK_BYTES) {
             complete = false;
             issue('live_source_not_checked', item.path);
-          } else if (hash(body) !== item.hash) issue('source_changed', item.path);
+          } else if (sha256(body) !== item.hash) issue('source_changed', item.path);
         } catch (error) {
           complete = false;
           issue(
@@ -125,7 +142,7 @@ export class Knowledge {
         queue.push({ ...dependency, via: [...ref.via, node.rel] });
       }
       for (const capture of node.saved.captures ?? []) {
-        if (bytes + capture.bytes > byteBudget) {
+        if (bytes + capture.bytes > MAX_BASIS_CHECK_BYTES) {
           complete = false;
           issue('capture_check_budget');
           break;
@@ -215,7 +232,7 @@ export class Knowledge {
       if (sensitive && !request.allowSensitive) refuse();
     } else {
       body = Buffer.from(node.saved.markdown, 'utf8');
-      contentHash = hash(body);
+      contentHash = sha256(body);
     }
     if (request.offset > body.length) throw Error('Offset exceeds saved content length.');
     const part = body.subarray(request.offset, request.offset + request.limit);
@@ -326,7 +343,7 @@ export class Knowledge {
       throw Error('Search cursor context disappeared. Restart the search.');
     const terms = [...new Set(request.query.toLowerCase().match(/[\p{L}\p{N}_]+/gu) ?? [])];
     const detail = request.detail ?? (terms.length ? 'concise' : 'compact');
-    const sourceExcerptLength = detail === 'full' ? 480 : 160;
+    const sourceExcerptLength = detail === 'full' ? LONG_EXCERPT_LENGTH : SHORT_EXCERPT_LENGTH;
     const matches = (text: string) =>
       !terms.length || terms.some(term => text.toLowerCase().includes(term));
     const statuses = new Set<string>(
@@ -352,7 +369,7 @@ export class Knowledge {
         : afterIndex;
     outer: for (let index = start; index < ids.length; index++) {
       // Continue by directory order even when no valid revision can be loaded.
-      if (gaps.length >= 64) {
+      if (gaps.length >= MAX_SEARCH_GAPS) {
         next = { afterContextId: ids[index - 1]! };
         break;
       }
@@ -400,7 +417,7 @@ export class Knowledge {
             continue;
           }
         }
-        if (statSync(pointer).size > 4096) throw Error('Oversize head');
+        if (statSync(pointer).size > MAX_POINTER_BYTES) throw Error('Oversize head');
         const version = digest.parse(JSON.parse(readFileSync(pointer, 'utf8')).version);
         const saved = this.store.revision(dir, version);
         verifiedContext = saved.context;
@@ -428,7 +445,7 @@ export class Knowledge {
       }
       const visited = new Set<string>();
       while (current) {
-        if (scanned >= 64 || results.length >= request.limit) {
+        if (scanned >= MAX_SCANNED_REVISIONS || results.length >= request.limit) {
           next = { contextId: id, version: current, head: head.version };
           break outer;
         }
@@ -478,8 +495,8 @@ export class Knowledge {
             sensitive = false;
           if (
             terms.length &&
-            item.bytes <= 256 * 1024 &&
-            searchedEvidenceBytes + item.bytes <= 1024 * 1024
+            item.bytes <= MAX_SEARCHED_BODY_BYTES &&
+            searchedEvidenceBytes + item.bytes <= MAX_SEARCHED_EVIDENCE_BYTES
           ) {
             searchedEvidenceBytes += item.bytes;
             try {
@@ -508,8 +525,8 @@ export class Knowledge {
             if (terms.length) skippedSensitive++;
           } else if (
             terms.length &&
-            item.bytes <= 256 * 1024 &&
-            searchedEvidenceBytes + item.bytes <= 1024 * 1024
+            item.bytes <= MAX_SEARCHED_BODY_BYTES &&
+            searchedEvidenceBytes + item.bytes <= MAX_SEARCHED_EVIDENCE_BYTES
           ) {
             searchedEvidenceBytes += item.bytes;
             try {
@@ -565,10 +582,13 @@ export class Knowledge {
                 ? {
                     kind: 'record',
                     field: recordField,
-                    excerpt: excerpt(saved.record![recordField], terms, 160),
+                    excerpt: excerpt(saved.record![recordField], terms, SHORT_EXCERPT_LENGTH),
                   }
                 : matched.includes('markdown')
-                  ? { kind: 'markdown', excerpt: excerpt(saved.markdown, terms, 160) }
+                  ? {
+                      kind: 'markdown',
+                      excerpt: excerpt(saved.markdown, terms, SHORT_EXCERPT_LENGTH),
+                    }
                   : { kind: 'context' };
             results.push({
               context: head.rel,
@@ -581,8 +601,8 @@ export class Knowledge {
                     kind: saved.record.kind,
                     status: saved.record.status,
                     provenance: saved.record.provenance,
-                    scope: saved.record.scope.slice(0, 160),
-                    scopeTruncated: saved.record.scope.length > 160,
+                    scope: saved.record.scope.slice(0, SHORT_EXCERPT_LENGTH),
+                    scopeTruncated: saved.record.scope.length > SHORT_EXCERPT_LENGTH,
                   }
                 : null,
               ...(terms.length ? { matched } : {}),
@@ -609,10 +629,10 @@ export class Knowledge {
             scope: 'saved_only',
             matching: 'lexical',
             freshness: 'not_checked',
-            maxRevisions: 64,
-            maxGaps: 64,
-            maxEvidenceBytes: 1024 * 1024,
-            maxBodyBytes: 256 * 1024,
+            maxRevisions: MAX_SCANNED_REVISIONS,
+            maxGaps: MAX_SEARCH_GAPS,
+            maxEvidenceBytes: MAX_SEARCHED_EVIDENCE_BYTES,
+            maxBodyBytes: MAX_SEARCHED_BODY_BYTES,
             continuation: next !== undefined,
           };
     return {

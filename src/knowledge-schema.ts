@@ -1,16 +1,32 @@
 import { z } from 'zod';
+import {
+  captureId,
+  contextPath,
+  digest,
+  recordKind,
+  recordProvenance,
+  recordStatus,
+  recordStatusValues,
+  sourcePath,
+} from './schemas.js';
+import {
+  DEFAULT_FIND_RESULTS,
+  DEFAULT_READ_BYTES,
+  MAX_FIND_RESULTS,
+  MAX_QUERY_LENGTH,
+  MAX_READ_BYTES,
+  MAX_SCOPE_LENGTH,
+  MAX_TITLE_LENGTH,
+} from './limits.js';
 
-const digest = z.string().regex(/^[a-f0-9]{64}$/);
-export const referenceSchema = z
-  .object({ context: z.string().min(1).max(500), version: digest })
-  .strict();
+export const referenceSchema = z.object({ context: contextPath, version: digest }).strict();
 export const recordSchema = z
   .object({
-    title: z.string().trim().min(1).max(200),
-    kind: z.enum(['decision', 'finding', 'note', 'artifact']),
-    scope: z.string().trim().min(1).max(2000),
-    provenance: z.enum(['user', 'assistant', 'source', 'unknown']),
-    status: z.enum(['active', 'proposed', 'superseded', 'withdrawn']),
+    title: z.string().trim().min(1).max(MAX_TITLE_LENGTH),
+    kind: recordKind,
+    scope: z.string().trim().min(1).max(MAX_SCOPE_LENGTH),
+    provenance: recordProvenance,
+    status: recordStatus,
     supersededBy: referenceSchema.optional(),
   })
   .strict()
@@ -20,16 +36,20 @@ export const recordSchema = z
   );
 export type Reference = z.infer<typeof referenceSchema>;
 
-export const recordStatuses = ['active', 'proposed', 'superseded', 'withdrawn', 'none'] as const;
+export const recordStatuses = [...recordStatusValues, 'none'] as const;
 export const findInput = z
   .object({
-    query: z.string().max(500).default('').describe('Lexical terms; empty lists records.'),
+    query: z
+      .string()
+      .max(MAX_QUERY_LENGTH)
+      .default('')
+      .describe('Lexical terms; empty lists records.'),
     limit: z
       .number()
       .int()
       .min(1)
-      .max(20)
-      .default(10)
+      .max(MAX_FIND_RESULTS)
+      .default(DEFAULT_FIND_RESULTS)
       .describe(
         'Records per page. Omit for 10; maximum 20. Pass the returned next as cursor with unchanged options; a larger limit does not resolve skipped evidence bodies.',
       ),
@@ -67,7 +87,7 @@ export const findInput = z
   .strict();
 export const conditionalResumeInput = z
   .object({
-    context: z.string().min(1).max(500),
+    context: contextPath,
     knownVersion: digest
       .optional()
       .describe(
@@ -77,20 +97,17 @@ export const conditionalResumeInput = z
   .strict();
 export const readInput = z
   .object({
-    context: z.string().min(1).max(500),
+    context: contextPath,
     version: digest.optional(),
-    source: z.string().min(1).max(1000).optional(),
-    capture: z
-      .string()
-      .regex(/^[a-z][a-z0-9_-]{0,63}$/)
-      .optional(),
+    source: sourcePath.optional(),
+    capture: captureId.optional(),
     offset: z.number().int().min(0).default(0).describe('Byte offset into the exact saved bytes.'),
     limit: z
       .number()
       .int()
       .min(1)
-      .max(8192)
-      .default(4096)
+      .max(MAX_READ_BYTES)
+      .default(DEFAULT_READ_BYTES)
       .describe(
         'Bytes per page. Omit for 4096; maximum 8192. For more bytes, follow nextOffset with the same context, the returned version, and the same source or capture.',
       ),

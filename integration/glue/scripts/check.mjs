@@ -8,6 +8,7 @@ import {
   parseConfiguration,
   parseJsonConfiguration,
   assertLocalConnection,
+  coreTools,
 } from './configuration.mjs';
 import { collectFiles, fingerprint } from './installation-files.mjs';
 const installation = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -95,18 +96,7 @@ try {
   const tools = responses.find(response => response.id === 1)?.result?.tools?.map(t => t.name);
   if (!Array.isArray(tools)) throw Error('MCP discovery failed.');
   assertLocalConnection(parsed, process.execPath, args, binding.host, binding.name, tools);
-  if (
-    JSON.stringify(tools) !==
-    JSON.stringify([
-      'glue_resume',
-      'glue_checkpoint',
-      'glue_find',
-      'glue_read',
-      'glue_check_capture',
-      'glue_transfer',
-    ])
-  )
-    throw Error('Unexpected MCP tools.');
+  if (JSON.stringify(tools) !== JSON.stringify(coreTools)) throw Error('Unexpected MCP tools.');
   console.log(
     JSON.stringify({
       ok: true,
