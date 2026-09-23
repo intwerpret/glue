@@ -85,6 +85,9 @@ The assistant calls `glue_find`, then `glue_resume`, and gets back the handoff t
 
 Other things to ask for:
 
+- "Use Glue to pick this work back up. Summarize the current goal, decisions, unfinished work, changed evidence and next useful step."
+- "Use Glue to explain why we chose this approach, which alternatives we ruled out, and what changed since then."
+- "Use Glue to find our earlier work on this topic. If the search leaves relevant sources unchecked, tell me what remains unresolved."
 - Retrieve the exact evidence behind a saved statement, or explain which declared inputs changed.
 - Retain an explicitly selected external document or excerpt obtained through the host's authorized tools.
 - Transfer a reviewed selection to another project, keeping its scope and reporting omitted support.
