@@ -24,4 +24,4 @@ Tie changes to a requirement or a demonstrated defect. Preserve exact saved byte
 
 Review errors as well as successful results for disclosure. Derived text must not be presented as retained original bytes. Caller-declared provenance and sensitive-content acknowledgments are not authenticated permission. Host-specific instructions must not assume every host has shell or native file tools.
 
-See [behavior and limits](docs/limits.md), [host setup](integration/glue/references/hosts.md) and [maintenance](integration/glue/references/maintenance.md).
+See [architecture](ARCHITECTURE.md), [behavior and limits](docs/limits.md), [host setup](integration/glue/references/hosts.md) and [maintenance](integration/glue/references/maintenance.md).
