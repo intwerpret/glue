@@ -16,7 +16,9 @@
   },
   "scripts": {
     "build": "node scripts/build.mjs",
-    "test": "npm run build && node --test tests/handoff*.test.mjs"
+    "test": "npm run build && node --test tests/handoff*.test.mjs",
+    "format": "prettier --write src scripts integration tests install.mjs",
+    "format:check": "prettier --check src scripts integration tests install.mjs"
   },
   "dependencies": {
     "smol-toml": "1.8.0",
@@ -24,6 +26,7 @@
   },
   "devDependencies": {
     "@types/node": "22.19.19",
+    "prettier": "3.9.9",
     "typescript": "5.9.3"
   }
 }

@@ -1,22 +1,48 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, realpathSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  mkdtempSync,
+  realpathSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 const initialize = (id = 'initialize', protocolVersion = '2025-11-25') => ({
-  jsonrpc: '2.0', id, method: 'initialize',
-  params: { protocolVersion, capabilities: {}, clientInfo: { name: 'protocol-fixture', version: '1.0' } },
+  jsonrpc: '2.0',
+  id,
+  method: 'initialize',
+  params: {
+    protocolVersion,
+    capabilities: {},
+    clientInfo: { name: 'protocol-fixture', version: '1.0' },
+  },
 });
 const ready = { jsonrpc: '2.0', method: 'notifications/initialized' };
-const request = (id, method, params) => ({ jsonrpc: '2.0', id, method, ...(params === undefined ? {} : { params }) });
+const request = (id, method, params) => ({
+  jsonrpc: '2.0',
+  id,
+  method,
+  ...(params === undefined ? {} : { params }),
+});
 function fixture(t) {
   const workspace = mkdtempSync(join(realpathSync(tmpdir()), 'glue-protocol-'));
   t.after(() => rmSync(workspace, { recursive: true, force: true }));
   const run = messages => {
-    const input = messages.map(value => typeof value === 'string' ? value : JSON.stringify(value)).join('\n') + '\n';
-    const child = spawnSync(process.execPath, ['dist/mcp.js', workspace], { input, encoding: 'utf8', windowsHide: true, timeout: 10000 });
+    const input =
+      messages
+        .map(value => (typeof value === 'string' ? value : JSON.stringify(value)))
+        .join('\n') + '\n';
+    const child = spawnSync(process.execPath, ['dist/mcp.js', workspace], {
+      input,
+      encoding: 'utf8',
+      windowsHide: true,
+      timeout: 10000,
+    });
     assert.equal(child.status, 0, child.stderr);
     assert.equal(child.stderr, '');
     return child.stdout.trim().split('\n').filter(Boolean).map(JSON.parse);
@@ -26,30 +52,57 @@ function fixture(t) {
 
 test('MCP negotiates an implemented version, reports package identity and accepts host metadata', t => {
   const { workspace, run } = fixture(t);
-  const version = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
+  const version = JSON.parse(
+    readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
+  ).version;
   for (const offered of ['2025-11-25', 'unknown-protocol', '2024-11-05']) {
     const init = initialize(0, offered);
     init.params.clientInfo.title = 'Independent host';
     init.params.capabilities = { roots: { listChanged: true }, experimental: { future: {} } };
-    const rows = run([init, ready, request('list', 'tools/list', { _meta: { progressToken: 'test' } })]);
+    const rows = run([
+      init,
+      ready,
+      request('list', 'tools/list', { _meta: { progressToken: 'test' } }),
+    ]);
     assert.equal(rows.length, 2);
     assert.equal(rows[0].id, 0);
     assert.equal(rows[0].result.protocolVersion, '2025-11-25');
     assert.equal(rows[0].result.serverInfo.version, version);
     assert.equal(rows[0].result.instructions.includes('Codex'), false);
     assert.deepEqual(rows[0].result.capabilities, { tools: {} });
-    assert.deepEqual(rows[1].result.tools.map(tool => tool.name), ['glue_resume', 'glue_checkpoint', 'glue_find', 'glue_read', 'glue_check_capture', 'glue_transfer']);
+    assert.deepEqual(
+      rows[1].result.tools.map(tool => tool.name),
+      [
+        'glue_resume',
+        'glue_checkpoint',
+        'glue_find',
+        'glue_read',
+        'glue_check_capture',
+        'glue_transfer',
+      ],
+    );
     assert.match(rows[0].result.instructions, /local stdio server/);
     assert.match(rows[0].result.instructions, /makes no network requests/);
     for (const tool of rows[1].result.tools) {
       assert.equal(tool.annotations.openWorldHint, false, tool.name);
       assert.equal(tool.annotations.destructiveHint, false, tool.name);
-      assert.equal(tool.annotations.readOnlyHint, tool.name !== 'glue_checkpoint' && tool.name !== 'glue_transfer', tool.name);
+      assert.equal(
+        tool.annotations.readOnlyHint,
+        tool.name !== 'glue_checkpoint' && tool.name !== 'glue_transfer',
+        tool.name,
+      );
     }
     for (const name of ['glue_checkpoint', 'glue_transfer']) {
-      assert.match(rows[1].result.tools.find(tool => tool.name === name).description, /Glue makes no network requests/, name);
+      assert.match(
+        rows[1].result.tools.find(tool => tool.name === name).description,
+        /Glue makes no network requests/,
+        name,
+      );
     }
-    assert.match(rows[1].result.tools.find(tool => tool.name === 'glue_find').description, /do not pass allowSensitive/);
+    assert.match(
+      rows[1].result.tools.find(tool => tool.name === 'glue_find').description,
+      /do not pass allowSensitive/,
+    );
   }
   assert.deepEqual(readdirSync(workspace), []);
 });
@@ -57,13 +110,25 @@ test('MCP negotiates an implemented version, reports package identity and accept
 test('MCP rejects malformed initialization without changing state and requires initialized notification', t => {
   const { workspace, run } = fixture(t);
   const rows = run([
-    request(1, 'tools/call', { name: 'glue_checkpoint', arguments: { context: 'unexpected.md', expectedVersion: null, markdown: 'must not save' } }),
+    request(1, 'tools/call', {
+      name: 'glue_checkpoint',
+      arguments: { context: 'unexpected.md', expectedVersion: null, markdown: 'must not save' },
+    }),
     request(2, 'ping'),
-    request(3, 'initialize', { protocolVersion: 123, capabilities: {}, clientInfo: { name: 'fixture', version: '1' } }),
+    request(3, 'initialize', {
+      protocolVersion: 123,
+      capabilities: {},
+      clientInfo: { name: 'fixture', version: '1' },
+    }),
     request(4, 'initialize', { protocolVersion: '2025-11-25' }),
-    initialize(5), request(6, 'tools/list'),
-    { ...ready, params: [] }, request(7, 'tools/list'),
-    ready, request(8, 'tools/list'), initialize(9), request(10, 'ping'),
+    initialize(5),
+    request(6, 'tools/list'),
+    { ...ready, params: [] },
+    request(7, 'tools/list'),
+    ready,
+    request(8, 'tools/list'),
+    initialize(9),
+    request(10, 'ping'),
   ]);
   const byId = new Map(rows.map(row => [row.id, row]));
   assert.equal(byId.get(1).error.code, -32002);
@@ -82,17 +147,30 @@ test('MCP rejects malformed initialization without changing state and requires i
 test('MCP distinguishes parse, envelope, method and parameter failures and keeps serving', t => {
   const { workspace, run } = fixture(t);
   const rows = run([
-    '{broken', null, [], 7,
-    { id: 1, method: 'ping' }, { jsonrpc: '1.0', id: 2, method: 'ping' },
-    request(null, 'ping'), request(true, 'ping'), request(1.5, 'ping'),
+    '{broken',
+    null,
+    [],
+    7,
+    { id: 1, method: 'ping' },
+    { jsonrpc: '1.0', id: 2, method: 'ping' },
+    request(null, 'ping'),
+    request(true, 'ping'),
+    request(1.5, 'ping'),
     { ...request(3, 'ping'), result: {} },
-    initialize(), ready,
-    request('params', 'ping', []), request('method', 'missing/method'),
-    request('call', 'tools/call', {}), request('unknown', 'tools/call', { name: 'missing' }),
-    request('cursor', 'tools/list', { cursor: 'invented' }), request('last', 'ping'),
+    initialize(),
+    ready,
+    request('params', 'ping', []),
+    request('method', 'missing/method'),
+    request('call', 'tools/call', {}),
+    request('unknown', 'tools/call', { name: 'missing' }),
+    request('cursor', 'tools/list', { cursor: 'invented' }),
+    request('last', 'ping'),
   ]);
   assert.equal(rows[0].error.code, -32700);
-  for (const row of rows.slice(1, 10)) { assert.equal(row.error.code, -32600); assert.equal(row.id, null); }
+  for (const row of rows.slice(1, 10)) {
+    assert.equal(row.error.code, -32600);
+    assert.equal(row.id, null);
+  }
   const byId = new Map(rows.map(row => [row.id, row]));
   assert.equal(byId.get('params').error.code, -32602);
   assert.equal(byId.get('method').error.code, -32601);
@@ -106,22 +184,42 @@ test('MCP distinguishes parse, envelope, method and parameter failures and keeps
 test('MCP never executes tool notifications or responds to ordinary notifications', t => {
   const { workspace, run } = fixture(t);
   const rows = run([
-    initialize(), ready,
-    { jsonrpc: '2.0', method: 'tools/call', params: { name: 'glue_checkpoint', arguments: { context: 'unexpected.md', expectedVersion: null, markdown: 'must not save' } } },
+    initialize(),
+    ready,
+    {
+      jsonrpc: '2.0',
+      method: 'tools/call',
+      params: {
+        name: 'glue_checkpoint',
+        arguments: { context: 'unexpected.md', expectedVersion: null, markdown: 'must not save' },
+      },
+    },
     { jsonrpc: '2.0', method: 'notifications/cancelled', params: { requestId: 1 } },
-    { jsonrpc: '2.0', method: 'unknown/notification' }, request('done', 'ping'),
+    { jsonrpc: '2.0', method: 'unknown/notification' },
+    request('done', 'ping'),
   ]);
-  assert.deepEqual(rows.map(row => row.id), ['initialize', 'done']);
+  assert.deepEqual(
+    rows.map(row => row.id),
+    ['initialize', 'done'],
+  );
   assert.deepEqual(readdirSync(workspace), []);
 });
 
 test('MCP tool validation and execution failures remain tool errors after initialization', t => {
   const { workspace, run } = fixture(t);
   const rows = run([
-    initialize(), ready,
+    initialize(),
+    ready,
     request(1, 'tools/call', { name: 'glue_resume', arguments: { context: 17 } }),
-    request(2, 'tools/call', { name: 'glue_checkpoint', arguments: { context: 'note.md', expectedVersion: 'a'.repeat(64), markdown: 'stale' } }),
-    request(3, 'tools/call', { name: 'glue_resume', arguments: { context: 'note.md' }, _meta: { progressToken: 3 } }),
+    request(2, 'tools/call', {
+      name: 'glue_checkpoint',
+      arguments: { context: 'note.md', expectedVersion: 'a'.repeat(64), markdown: 'stale' },
+    }),
+    request(3, 'tools/call', {
+      name: 'glue_resume',
+      arguments: { context: 'note.md' },
+      _meta: { progressToken: 3 },
+    }),
   ]);
   assert.equal(rows[1].result.isError, true);
   assert.equal(rows[2].result.isError, true);
@@ -130,15 +228,41 @@ test('MCP tool validation and execution failures remain tool errors after initia
   assert.equal(readdirSync(workspace).includes('note.md'), false);
 });
 
-
 test('MCP error diagnostics omit malformed values and absolute project paths', t => {
   const { workspace, run } = fixture(t);
   const marker = 'private-malformed-value-42';
   const rows = run([
-    initialize(), ready,
-    request(1, 'tools/call', { name: 'glue_checkpoint', arguments: { context: 'note.md', expectedVersion: marker, markdown: 'safe', [marker]: marker } }),
-    request(2, 'tools/call', { name: 'glue_checkpoint', arguments: { context: 'note.md', expectedVersion: null, markdown: 'safe', evidence: ['missing.txt'] } }),
-    request(3, 'tools/call', { name: 'glue_check_capture', arguments: { context: 'note.md', capture: 'example', hash: marker, representation: marker, basis: 'full text', retrievedAt: marker } }),
+    initialize(),
+    ready,
+    request(1, 'tools/call', {
+      name: 'glue_checkpoint',
+      arguments: {
+        context: 'note.md',
+        expectedVersion: marker,
+        markdown: 'safe',
+        [marker]: marker,
+      },
+    }),
+    request(2, 'tools/call', {
+      name: 'glue_checkpoint',
+      arguments: {
+        context: 'note.md',
+        expectedVersion: null,
+        markdown: 'safe',
+        evidence: ['missing.txt'],
+      },
+    }),
+    request(3, 'tools/call', {
+      name: 'glue_check_capture',
+      arguments: {
+        context: 'note.md',
+        capture: 'example',
+        hash: marker,
+        representation: marker,
+        basis: 'full text',
+        retrievedAt: marker,
+      },
+    }),
   ]);
   for (const row of rows.slice(1)) {
     assert.equal(row.result.isError, true);
@@ -156,10 +280,25 @@ const resultText = row => row.result.content[0].text;
 
 test('checkpoint callers cannot declare import provenance; only a transfer import records it', t => {
   const { run } = fixture(t);
-  const imported = { origin: { namespace: 'example', id: 'forged', version: 'v1' }, payloadHash: 'a'.repeat(64), omittedSupport: 0, sourceStatus: 'active', derived: false };
-  const rows = run([initialize(), ready, request(1, 'tools/list'),
-    call(2, 'glue_checkpoint', { context: 'note.md', expectedVersion: null, markdown: 'Plain note', imported }),
-    call(3, 'glue_resume', { context: 'note.md' })]);
+  const imported = {
+    origin: { namespace: 'example', id: 'forged', version: 'v1' },
+    payloadHash: 'a'.repeat(64),
+    omittedSupport: 0,
+    sourceStatus: 'active',
+    derived: false,
+  };
+  const rows = run([
+    initialize(),
+    ready,
+    request(1, 'tools/list'),
+    call(2, 'glue_checkpoint', {
+      context: 'note.md',
+      expectedVersion: null,
+      markdown: 'Plain note',
+      imported,
+    }),
+    call(3, 'glue_resume', { context: 'note.md' }),
+  ]);
   const checkpoint = rows[1].result.tools.find(tool => tool.name === 'glue_checkpoint');
   assert.equal(Object.hasOwn(checkpoint.inputSchema.properties, 'imported'), false);
   assert.equal(rows[2].result.isError, true);
@@ -169,9 +308,21 @@ test('checkpoint callers cannot declare import provenance; only a transfer impor
 
 test('damaged saved files are reported as damaged history, not as invalid caller arguments', t => {
   const { workspace, run } = fixture(t);
-  run([initialize(), ready, call(1, 'glue_checkpoint', { context: 'note.md', expectedVersion: null, markdown: 'Saved note' })]);
-  const contexts = join(workspace, '.glue', 'contexts'), directory = join(contexts, readdirSync(contexts)[0]);
-  writeFileSync(join(directory, 'HEAD.json'), JSON.stringify({ format: 1, version: 'not-a-digest' }));
+  run([
+    initialize(),
+    ready,
+    call(1, 'glue_checkpoint', {
+      context: 'note.md',
+      expectedVersion: null,
+      markdown: 'Saved note',
+    }),
+  ]);
+  const contexts = join(workspace, '.glue', 'contexts'),
+    directory = join(contexts, readdirSync(contexts)[0]);
+  writeFileSync(
+    join(directory, 'HEAD.json'),
+    JSON.stringify({ format: 1, version: 'not-a-digest' }),
+  );
   const rows = run([initialize(), ready, call(1, 'glue_resume', { context: 'note.md' })]);
   assert.equal(rows[1].result.isError, true);
   assert.doesNotMatch(resultText(rows[1]), /Invalid Glue arguments|nothing was saved/);
@@ -194,8 +345,15 @@ test('MCP serves a host runtime whose stdin only emits data events and whose std
     real.on('end', () => fake.emit('end'));
     await serving;
   `;
-  const input = [initialize(), ready, request(1, 'tools/list')].map(value => JSON.stringify(value)).join('\n') + '\n';
-  const child = spawnSync(process.execPath, ['--input-type=module', '-e', harness, workspace], { input, encoding: 'utf8', windowsHide: true, timeout: 10000 });
+  const input =
+    [initialize(), ready, request(1, 'tools/list')].map(value => JSON.stringify(value)).join('\n') +
+    '\n';
+  const child = spawnSync(process.execPath, ['--input-type=module', '-e', harness, workspace], {
+    input,
+    encoding: 'utf8',
+    windowsHide: true,
+    timeout: 10000,
+  });
   assert.equal(child.status, 0, child.stderr);
   const rows = child.stdout.trim().split('\n').filter(Boolean).map(JSON.parse);
   assert.equal(rows.length, 2);
@@ -204,7 +362,10 @@ test('MCP serves a host runtime whose stdin only emits data events and whose std
 
 test('event-only host input refuses an excessive queued burst without retaining an unlimited backlog', t => {
   const { workspace } = fixture(t);
-  for (const [count, padding] of [[12, 512 * 1024], [2048, 0]]) {
+  for (const [count, padding] of [
+    [12, 512 * 1024],
+    [2048, 0],
+  ]) {
     const harness = `
       import assert from 'node:assert/strict';
       import { EventEmitter } from 'node:events';
@@ -222,7 +383,11 @@ test('event-only host input refuses an excessive queued burst without retaining 
       await checked;
       assert.equal(input.listenerCount('data'), 0);
     `;
-    const child = spawnSync(process.execPath, ['--input-type=module', '-e', harness, workspace], { encoding: 'utf8', windowsHide: true, timeout: 10000 });
+    const child = spawnSync(process.execPath, ['--input-type=module', '-e', harness, workspace], {
+      encoding: 'utf8',
+      windowsHide: true,
+      timeout: 10000,
+    });
     assert.equal(child.status, 0, child.stderr);
   }
   assert.deepEqual(readdirSync(workspace), []);
@@ -230,8 +395,13 @@ test('event-only host input refuses an excessive queued burst without retaining 
 
 test('ordinary stdin applies backpressure and serves a burst larger than the host fallback queue limit', t => {
   const { run } = fixture(t);
-  const rows = run(Array.from({ length: 12 }, (_, id) => request(id, 'ping', { padding: 'x'.repeat(512 * 1024) })));
-  assert.deepEqual(rows.map(row => row.id), Array.from({ length: 12 }, (_, id) => id));
+  const rows = run(
+    Array.from({ length: 12 }, (_, id) => request(id, 'ping', { padding: 'x'.repeat(512 * 1024) })),
+  );
+  assert.deepEqual(
+    rows.map(row => row.id),
+    Array.from({ length: 12 }, (_, id) => id),
+  );
   for (const row of rows) assert.deepEqual(row.result, {});
 });
 
@@ -251,7 +421,11 @@ test('output closure/errors settle pending or idle bundled-host service and remo
       for(const name of ['data','end','close','error'])assert.equal(input.listenerCount(name),0,name);
       for(const name of ['drain','close','error'])assert.equal(output.listenerCount(name),0,name);
     `;
-    const child = spawnSync(process.execPath, ['--input-type=module', '-e', harness, workspace, mode], { encoding: 'utf8', windowsHide: true, timeout: 5000 });
+    const child = spawnSync(
+      process.execPath,
+      ['--input-type=module', '-e', harness, workspace, mode],
+      { encoding: 'utf8', windowsHide: true, timeout: 5000 },
+    );
     assert.equal(child.status, 0, child.stderr);
   }
 });
@@ -259,26 +433,48 @@ test('output closure/errors settle pending or idle bundled-host service and remo
 test('closed native stdout ends cleanly instead of crashing on EPIPE', async t => {
   const { workspace } = fixture(t);
   const { spawn } = await import('node:child_process');
-  const child = spawn(process.execPath, ['dist/mcp.js', workspace], { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
-  let stderr = ''; child.stderr.on('data', chunk => { stderr += chunk; });
+  const child = spawn(process.execPath, ['dist/mcp.js', workspace], {
+    windowsHide: true,
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+  let stderr = '';
+  child.stderr.on('data', chunk => {
+    stderr += chunk;
+  });
   child.stdin.on('error', () => {});
   const timer = setTimeout(() => child.kill(), 5000);
   try {
-    const closed = new Promise(resolve => child.once('close', (code, signal) => resolve({ code, signal })));
+    const closed = new Promise(resolve =>
+      child.once('close', (code, signal) => resolve({ code, signal })),
+    );
     child.stdout.destroy();
     child.stdin.end(JSON.stringify(initialize()) + '\n');
     const result = await closed;
     assert.equal(result.code, 0, stderr);
     assert.equal(result.signal, null);
     assert.equal(stderr, '');
-  } finally { clearTimeout(timer); if (child.exitCode === null) child.kill(); }
+  } finally {
+    clearTimeout(timer);
+    if (child.exitCode === null) child.kill();
+  }
 });
 
 test('lost checkpoint response retains the committed revision and an identical retry replays it', t => {
   const { workspace } = fixture(t);
-  const save = { context: 'lost-response.md', expectedVersion: null, markdown: 'Committed before disconnect' };
-  const messages = [initialize(), ready, request('save', 'tools/call', { name: 'glue_checkpoint', arguments: save }),
-    request('not-saved', 'tools/call', { name: 'glue_checkpoint', arguments: { context: 'after-close.md', expectedVersion: null, markdown: 'must not execute' } })];
+  const save = {
+    context: 'lost-response.md',
+    expectedVersion: null,
+    markdown: 'Committed before disconnect',
+  };
+  const messages = [
+    initialize(),
+    ready,
+    request('save', 'tools/call', { name: 'glue_checkpoint', arguments: save }),
+    request('not-saved', 'tools/call', {
+      name: 'glue_checkpoint',
+      arguments: { context: 'after-close.md', expectedVersion: null, markdown: 'must not execute' },
+    }),
+  ];
   const harness = `
     import {EventEmitter} from 'node:events';
     const input=new EventEmitter(),output=new EventEmitter();
@@ -289,11 +485,27 @@ test('lost checkpoint response retains the committed revision and an identical r
     setImmediate(()=>input.emit('data',Buffer.from(${JSON.stringify(messages.map(value => JSON.stringify(value)).join('\n') + '\n')})));
     const timer=setTimeout(()=>process.exit(9),2000);await serving;clearTimeout(timer);
   `;
-  const child = spawnSync(process.execPath, ['--input-type=module', '-e', harness, workspace], { encoding: 'utf8', windowsHide: true, timeout: 5000 });
+  const child = spawnSync(process.execPath, ['--input-type=module', '-e', harness, workspace], {
+    encoding: 'utf8',
+    windowsHide: true,
+    timeout: 5000,
+  });
   assert.equal(child.status, 0, child.stderr);
   // Reuse the same project through the ordinary native MCP entry point.
-  const input = [initialize(), ready, request('retry', 'tools/call', { name: 'glue_checkpoint', arguments: save })].map(JSON.stringify).join('\n') + '\n';
-  const replay = spawnSync(process.execPath, ['dist/mcp.js', workspace], { input, encoding: 'utf8', windowsHide: true, timeout: 5000 });
+  const input =
+    [
+      initialize(),
+      ready,
+      request('retry', 'tools/call', { name: 'glue_checkpoint', arguments: save }),
+    ]
+      .map(JSON.stringify)
+      .join('\n') + '\n';
+  const replay = spawnSync(process.execPath, ['dist/mcp.js', workspace], {
+    input,
+    encoding: 'utf8',
+    windowsHide: true,
+    timeout: 5000,
+  });
   assert.equal(replay.status, 0, replay.stderr);
   const response = JSON.parse(replay.stdout.trim().split('\n').at(-1));
   assert.equal(JSON.parse(response.result.content[0].text).replayed, true);
@@ -303,9 +515,18 @@ test('lost checkpoint response retains the committed revision and an identical r
 
 test('an oversized request line is refused without ending the connection', t => {
   const { workspace, run } = fixture(t);
-  const responses = run([initialize(), ready, JSON.stringify(request('large', 'ping', { pad: 'x'.repeat(3 * 1024 * 1024) })), request('after', 'ping')]);
-  assert.deepEqual(responses.map(response => response.id), ['initialize', null, 'after']);
-  assert.equal(responses[1].error.code, -32600); assert.match(responses[1].error.message, /2 MiB/);
+  const responses = run([
+    initialize(),
+    ready,
+    JSON.stringify(request('large', 'ping', { pad: 'x'.repeat(3 * 1024 * 1024) })),
+    request('after', 'ping'),
+  ]);
+  assert.deepEqual(
+    responses.map(response => response.id),
+    ['initialize', null, 'after'],
+  );
+  assert.equal(responses[1].error.code, -32600);
+  assert.match(responses[1].error.message, /2 MiB/);
   assert.deepEqual(responses[2].result, {});
   assert.deepEqual(readdirSync(workspace), []);
 });
@@ -338,10 +559,17 @@ test('MCP handles tiny input fragments with bounded copying and recovers after a
     await serveMcp(process.argv[1]);
     assert.ok(repeatedCopyBytes < 16 * 1024 * 1024, 'Input framing repeatedly copied prior fragments');
   `;
-  const child = spawnSync(process.execPath, ['--input-type=module', '-e', harness, workspace], { encoding: 'utf8', windowsHide: true, timeout: 10000 });
+  const child = spawnSync(process.execPath, ['--input-type=module', '-e', harness, workspace], {
+    encoding: 'utf8',
+    windowsHide: true,
+    timeout: 10000,
+  });
   assert.equal(child.status, 0, child.stderr);
   const responses = child.stdout.trim().split('\n').map(JSON.parse);
-  assert.deepEqual(responses.map(response => response.id), ['initialize', 'near', null, 'after']);
+  assert.deepEqual(
+    responses.map(response => response.id),
+    ['initialize', 'near', null, 'after'],
+  );
   assert.deepEqual(responses[1].result, {});
   assert.equal(responses[2].error.code, -32600);
   assert.deepEqual(responses[3].result, {});

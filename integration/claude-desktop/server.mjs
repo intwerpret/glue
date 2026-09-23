@@ -10,7 +10,10 @@ async function main() {
     stage = 'package';
     const { selectProject } = await import('./project-binding.mjs');
     stage = 'project-folder';
-    const project = selectProject(process.env.GLUE_PROJECT_DIR, dirname(fileURLToPath(import.meta.url)));
+    const project = selectProject(
+      process.env.GLUE_PROJECT_DIR,
+      dirname(fileURLToPath(import.meta.url)),
+    );
     stage = 'runtime';
     const { serveMcp } = await import('./runtime/mcp.js');
     stage = 'serving';
@@ -19,7 +22,14 @@ async function main() {
     // Name the failed stage without echoing paths or values, then exit explicitly once the message is flushed:
     // a bundled host runtime can keep a failed process alive, which the host reports only as a timeout.
     process.exitCode = 1;
-    process.stderr.write('Glue could not start or serve (' + stage + ', Node ' + process.versions.node + '). Select one available project folder outside the extension package and verify Node 22+ support.\n', () => process.exit(1));
+    process.stderr.write(
+      'Glue could not start or serve (' +
+        stage +
+        ', Node ' +
+        process.versions.node +
+        '). Select one available project folder outside the extension package and verify Node 22+ support.\n',
+      () => process.exit(1),
+    );
   }
 }
 main();

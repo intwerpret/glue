@@ -1,0 +1,6 @@
+dist
+node_modules
+.local
+package-lock.json
+*.md
+*.yaml
