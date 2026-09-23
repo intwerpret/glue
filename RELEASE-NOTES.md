@@ -1,24 +1,41 @@
-# Release notes: 0.5.0-rc.1
+# Release notes
 
-Pre-release.
+## 0.5.0-rc.1
 
-## What Glue does
+Release candidate.
 
-Glue retains deliberately selected project work so an assistant can find and resume it. It provides six MCP tools: `glue_checkpoint`, `glue_resume`, `glue_find`, `glue_read`, `glue_check_capture` and `glue_transfer`.
+### Included
 
-- Readable Markdown handoffs with saved revisions, decisions, corrections and selected supporting files.
-- Lexical discovery over saved material and exact historical reads.
-- Declared dependency/version checks and review of changed selected evidence.
-- Host-supplied external captures labeled as original bytes, extracted text, excerpts or derived material.
-- Reviewed cross-project export/import of selected work, retaining origin information and disclosing omitted support.
-- Project-bound adapters for Codex, Claude Code and Claude Desktop, with plugin and extension packaging.
+- Six MCP tools: `glue_find`, `glue_resume`, `glue_read`, `glue_checkpoint`, `glue_transfer` and `glue_check_capture`. See the [tools reference](docs/tools.md).
+- Markdown handoffs with a revision for every save, readable at any point in history.
+- Evidence: exact copies of selected project files, compared with the live files on resume.
+- Captures: outside material the assistant retrieved, labeled as original bytes, extracted text, an excerpt or derived.
+- Records that label a handoff as a decision, finding, note or artifact, with a status.
+- Dependencies between handoffs, checked on resume.
+- Word search over saved handoffs, labels and evidence text.
+- Reviewed transfer of one handoff to another project, with its origin recorded.
+- Detection of common secrets in evidence and captures.
+- A recovery tool to inspect history and restore an earlier revision.
+- A one-command installer for Codex and Claude Code, a Claude Code plugin, and a Claude Desktop extension.
 
-## Platform scope
+### Supported hosts and platforms
 
-The automated suite passes on Windows and Linux. Codex, Claude Code and Claude Desktop have been exercised natively on Windows, including the Desktop extension running in Desktop's built-in Node.js, and installation has been exercised on Linux under WSL2. macOS is part of the CI matrix, but no macOS run or host has been observed yet. These observations do not certify every host and version combination.
+| Host | Setup |
+| --- | --- |
+| Codex | Project installer |
+| Claude Code | Project installer or plugin |
+| Claude Desktop | Extension (Windows and macOS), or configuration file |
 
-## Limits and updates
+Node.js 22 or later is required.
 
-Glue does not automatically record conversations, crawl projects/accounts, fetch remote sources or synchronize imported copies. Local history is plaintext; selected tool output reaches the connected host. Editing, deselecting or withdrawing content does not erase earlier versions. Hashes and saved labels do not establish truth, completeness or permission.
+The automated tests run on Windows, macOS and Linux. Glue has been tried in all three host apps on Windows. Host app trials on macOS and Linux have not been done yet.
 
-There is no automatic updater or automatic history migration. Preserve the current package, connection and saved work before replacement. Follow [host setup](integration/glue/references/hosts.md) and [maintenance](integration/glue/references/maintenance.md). See [behavior and limits](docs/limits.md) before use.
+### Known limitations
+
+- Resume follows dependencies forward only. Nothing lists which handoffs depend on a changed file.
+- Search matches words and does not rank results.
+- The store is plaintext and not encrypted.
+- There is no automatic updater. To update, uninstall and install the new version. Saved history is never migrated.
+- The Claude Desktop extension is unsigned.
+
+See [Limits](docs/limits.md) for the full list.
