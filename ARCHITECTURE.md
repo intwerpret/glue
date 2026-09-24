@@ -5,7 +5,7 @@ directory. It saves versioned Markdown handoffs, with selected evidence, in the
 project's `.glue` store and reads them back. It makes no network requests.
 
 This page maps the code for contributors. For user-facing behavior see
-[behavior and limits](docs/limits.md) and [context identity](docs/identity.md).
+[behavior and limits](docs/limits.md) and [context identity](docs/internals/identity.md).
 
 ## Modules
 
@@ -84,7 +84,7 @@ its current text is already saved.
 
 - The **identity path** of a new context is its workspace-relative path in
   Unicode NFC, lowercased. Older histories keep the exact spelling they were
-  saved under; `identity.ts` finds them. See [context identity](docs/identity.md).
+  saved under; `identity.ts` finds them. See [context identity](docs/internals/identity.md).
 - A **version** is the sha256 of the revision's JSON bytes. A revision records
   its context, parent version, request hash, time, Markdown, evidence list and
   optional record metadata, dependency pins, captures and import origin.
