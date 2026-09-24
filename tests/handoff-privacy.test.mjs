@@ -59,7 +59,7 @@ const save = (store, extra = {}) =>
     ...extra,
   });
 
-test('blocked mixed captures leave no sensitive bytes in Glue data or diagnostic text', t => {
+test('a save refused for a secret leaves no trace of it in the store or the error', t => {
   const { workspace, store } = fixture(t),
     marker = 'SYNTHETIC_PRIVATE_CAPTURE_987654';
   const failure = () =>
@@ -75,7 +75,7 @@ test('blocked mixed captures leave no sensitive bytes in Glue data or diagnostic
   assert.equal(store.resume({ context: 'handoff.md' }).version, null);
 });
 
-test('sensitive local-source exceptions cannot authorize siblings or changed source bytes', t => {
+test('approving one sensitive file does not approve other files or later versions of it', t => {
   const { workspace, store } = fixture(t),
     marker = 'SYNTHETIC_LOCAL_SECRET_123456';
   writeFileSync(join(workspace, '.env'), marker);
@@ -110,7 +110,7 @@ test('sensitive local-source exceptions cannot authorize siblings or changed sou
   assertAbsent(join(workspace, '.glue'), marker + '_CHANGED');
 });
 
-test('capture metadata rejects private machine paths and tokenized URLs without retaining them', t => {
+test('capture labels with private paths or token URLs are refused and not stored', t => {
   for (const locator of [
     'C:\\Users\\synthetic-person\\private.txt',
     '/home/synthetic-person/private.txt',
@@ -134,7 +134,7 @@ test('capture metadata rejects private machine paths and tokenized URLs without 
   }
 });
 
-test('safe public source URLs remain usable as portable capture metadata', t => {
+test('a plain public URL is allowed in capture details', t => {
   const { store } = fixture(t),
     url = 'https://example.invalid/public-document';
   const saved = save(store, {
@@ -152,7 +152,7 @@ test('safe public source URLs remain usable as portable capture metadata', t => 
   assert.equal(store.head('handoff.md').saved.captures[0].basis, url);
 });
 
-test('host capture checks remain attributed observations and do not adopt new bytes', t => {
+test('checking a capture records what the host reported and never replaces the saved bytes', t => {
   const { store, knowledge } = fixture(t);
   const origin = { namespace: 'synthetic', id: 'document', version: 'one' };
   const saved = save(store, {
@@ -183,7 +183,7 @@ test('host capture checks remain attributed observations and do not adopt new by
   assert.equal(store.head('handoff.md').version, saved.version);
 });
 
-test('binary capture paging preserves exact bytes and duplicate IDs do not commit', t => {
+test('binary captures read back exactly in pages, and duplicate capture IDs are refused', t => {
   const { workspace, store, knowledge } = fixture(t),
     bytes = Buffer.from([0, 255, 240, 159, 153, 130, 13, 10, 128, 1]);
   const request = {
@@ -217,7 +217,7 @@ test('binary capture paging preserves exact bytes and duplicate IDs do not commi
   assert.equal(existsSync(join(workspace, 'binary.md')), true);
 });
 
-test('capture selection omission retains, explicit clearing preserves historical bytes, and retries stay identical', t => {
+test('captures carry over unless you clear them, and cleared captures stay in history', t => {
   const { store, knowledge } = fixture(t);
   const request = {
     context: 'handoff.md',
@@ -259,7 +259,7 @@ test('capture selection omission retains, explicit clearing preserves historical
   assert.equal(store.head(request.context).version, cleared.version);
 });
 
-test('corrupt capture snapshots fail resume and exact reads instead of returning unchecked bytes', t => {
+test('a corrupt capture snapshot fails resume and read instead of returning bad bytes', t => {
   const { store, knowledge } = fixture(t);
   const saved = save(store, { captures: [capture('verified capture')] });
   const loc = store.location('handoff.md'),
@@ -270,7 +270,7 @@ test('corrupt capture snapshots fail resume and exact reads instead of returning
   assert.equal(store.head('handoff.md').version, saved.version);
 });
 
-test('missing, saved and unreadable-working-copy resumes omit absolute workspace locators', t => {
+test('resume never includes the absolute project path', t => {
   const { workspace, store, knowledge } = fixture(t);
   const strings = value =>
     typeof value === 'string'
@@ -296,7 +296,7 @@ test('missing, saved and unreadable-working-copy resumes omit absolute workspace
   check(unavailable);
 });
 
-test('selected clean-store rebuild excludes old snapshots, manual text and recovery while preserving the original', t => {
+test('copying one clean version to a new store carries no old history, and the original is untouched', t => {
   const source = fixture(t),
     target = fixture(t),
     marker = 'SYNTHETIC_RETIRED_HISTORY_654321';
@@ -401,7 +401,7 @@ test('selected clean-store rebuild excludes old snapshots, manual text and recov
   );
 });
 
-test('JSON credentials under an innocuous capture label are refused without retaining the value', t => {
+test('a password inside JSON is caught even under an ordinary label', t => {
   const { workspace, store } = fixture(t),
     marker = 'SYNTHETIC_JSON_CREDENTIAL_112233';
   const body = JSON.stringify({ password: marker });
@@ -417,7 +417,7 @@ test('JSON credentials under an innocuous capture label are refused without reta
   assert.equal(store.resume({ context: 'handoff.md' }).version, null);
 });
 
-test('read and search recheck captures whose saved sensitivity flag predates the current detector', t => {
+test('captures saved before a detector update are checked again when read or searched', t => {
   const { store, knowledge } = fixture(t),
     body = 'password=SYNTHETIC_SECRET_112233';
   save(store, { captures: [capture(body, { sensitiveAcknowledgement: hash(body) })] });
@@ -454,7 +454,7 @@ test('read and search recheck captures whose saved sensitivity flag predates the
   assert.equal(approved.captures[0].sensitive, true);
 });
 
-test('portable metadata screening stays fast on long adversarial runs', async () => {
+test('screening long hostile labels finishes quickly', async () => {
   const { assertPortableMetadata } = await import('../dist/captures.js');
   for (const flagged of [
     'mail person@example.invalid now',

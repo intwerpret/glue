@@ -10,7 +10,6 @@ import {
   mkdirSync,
   renameSync,
   symlinkSync,
-  rmdirSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
@@ -37,8 +36,18 @@ const record = title => ({
 });
 const save = (store, context, markdown, extra = {}) =>
   store.save({ context, markdown, expectedVersion: null, ...extra });
+const capture = (id, text, extra = {}) => ({
+  id,
+  label: 'Fictional capture',
+  representation: 'excerpt',
+  basis: 'synthetic',
+  scope: 'test',
+  base64: Buffer.from(text).toString('base64'),
+  ...extra,
+});
+const SECRET = 'password=FAKE_SYNTHETIC_SECRET_VALUE_1234';
 
-test('fresh discovery finds saved evidence and exact historical bytes survive correction and source deletion', t => {
+test('find locates saved evidence, and old versions stay readable after edits and deletions', t => {
   const { workspace, store, knowledge } = fixture(t);
   const body = Buffer.from('Research: orchid quality tied.\r\n原始🙂 evidence.');
   writeFileSync(join(workspace, 'trial.txt'), body);
@@ -90,7 +99,7 @@ test('fresh discovery finds saved evidence and exact historical bytes survive co
   );
 });
 
-test('declared dependency closure flags affected work, preserves old basis and ignores unrelated changes', t => {
+test('a changed source is flagged on every handoff that depends on it, and only those', t => {
   const { workspace, store, knowledge } = fixture(t);
   writeFileSync(join(workspace, 'owner.txt'), 'Approved price 89; no publication permission.');
   const decision = save(store, 'decisions/price.md', 'Use 89.', {
@@ -156,7 +165,7 @@ test('declared dependency closure flags affected work, preserves old basis and i
   );
 });
 
-test('search continuation covers revisions without duplicates, rejects stale cursors and discloses bounded evidence', t => {
+test('paging through history returns each revision once and refuses a cursor after new saves', t => {
   const { workspace, store, knowledge } = fixture(t);
   writeFileSync(join(workspace, 'large.txt'), 'x'.repeat(300000) + ' secretneedle');
   let receipt = save(store, 'a.md', 'needle 1', { evidence: ['large.txt'] });
@@ -194,7 +203,7 @@ test('search continuation covers revisions without duplicates, rejects stale cur
   );
 });
 
-test('status-filtered records do not exhaust the evidence budget before an eligible match', t => {
+test('records hidden by a status filter do not use up the evidence reading budget', t => {
   const { workspace, store, knowledge } = fixture(t);
   const target = 'included-target.md',
     targetId = basename(store.location(target).directory);
@@ -226,7 +235,7 @@ test('status-filtered records do not exhaust the evidence budget before an eligi
   assert.equal(result.next, null);
 });
 
-test('knowledge reads reject orphan versions and corrupt snapshots; supersession remains explicit', t => {
+test('read refuses revisions outside history and corrupt snapshots; superseding needs a target', t => {
   const { workspace, store, knowledge } = fixture(t);
   writeFileSync(join(workspace, 'source.txt'), 'original');
   const replacement = save(store, 'replacement.md', 'Current decision', {
@@ -265,7 +274,7 @@ test('knowledge reads reject orphan versions and corrupt snapshots; supersession
   );
 });
 
-test('exact saved evidence survives a linked live source while snapshot checks remain enforced', t => {
+test('read returns the saved evidence even when the live source became a link', t => {
   const { workspace, store, knowledge } = fixture(t),
     context = 'handoff.md',
     source = 'sources/a.txt';
@@ -308,7 +317,7 @@ test('exact saved evidence survives a linked live source while snapshot checks r
   assert.throws(() => knowledge.read({ context, source }), /linked/);
 });
 
-test('search pages past unavailable contexts and continues healthy history without duplicates', t => {
+test('find pages past damaged handoffs and still returns each healthy revision once', t => {
   const { workspace, store, knowledge } = fixture(t),
     context = 'healthy.md';
   const first = save(store, context, 'needle original');
@@ -350,7 +359,7 @@ test('search pages past unavailable contexts and continues healthy history witho
   store.save({ context, expectedVersion: latest.version, markdown: 'changed head' });
   assert.throws(() => knowledge.find({ ...options, cursor: page3.next }), /head changed/);
 });
-test('unavailable-only search ends at its last directory without a spurious continuation', t => {
+test('find over only damaged handoffs ends without an extra page', t => {
   const { workspace, knowledge } = fixture(t);
   for (let i = 0; i < 64; i++) unavailableContext(workspace, 'failed-' + i + '.md');
   const page = knowledge.find({});
@@ -360,7 +369,7 @@ test('unavailable-only search ends at its last directory without a spurious cont
   assert.equal(knowledge.find({ cursor: { afterContextId: 'f'.repeat(64) } }).next, null);
 });
 
-test('capture checking separates upstream version changes from representation and source identity', t => {
+test('checking a capture tells a new source version apart from changed bytes or another source', t => {
   const { store, knowledge } = fixture(t),
     body = Buffer.from('Retained original text');
   const capture = {
@@ -418,7 +427,7 @@ test('capture checking separates upstream version changes from representation an
   assert.equal(knowledge.read({ context: 'finding.md', capture: 'source' }).text, body.toString());
 });
 
-test('known omitted imported support makes local and downstream assessment incomplete', t => {
+test('an import that left out support is incomplete, and so is work that depends on it', t => {
   const { store, knowledge } = fixture(t);
   const imported = {
     origin: { namespace: 'example', id: 'finding', version: 'v1' },
@@ -455,7 +464,7 @@ test('known omitted imported support makes local and downstream assessment incom
   assert.equal(knowledge.resume({ context: 'complete-copy.md' }).basis.status, 'unchanged');
 });
 
-test('conditional resume omits only held Markdown and still observes live changes', t => {
+test('resume with knownVersion leaves out text you already have but still reports changes', t => {
   const { workspace, store, knowledge } = fixture(t);
   writeFileSync(join(workspace, 'source.txt'), 'original');
   const dep = save(store, 'dependency.md', 'Dependency', { evidence: ['source.txt'] });
@@ -489,7 +498,7 @@ test('conditional resume omits only held Markdown and still observes live change
   assert.equal(knowledge.resume({ context: 'plan.md' }).markdown, full.markdown);
 });
 
-test('lean reads retain exact bytes for Unicode boundaries and binary evidence', t => {
+test('read returns text by default, and exact bytes for binary data or split characters', t => {
   const { workspace, store, knowledge } = fixture(t);
   writeFileSync(join(workspace, 'binary.dat'), Buffer.from([255, 0, 254]));
   const saved = save(store, 'unicode.md', '🙂 café', { evidence: ['binary.dat'] });
@@ -511,7 +520,7 @@ test('lean reads retain exact bytes for Unicode boundaries and binary evidence',
   assert.throws(() => knowledge.read({ ...args, representation: 'unknown' }));
 });
 
-test('find defaults compact listings and concise actual matches while full remains explicit', t => {
+test('find lists briefly by default, shows short matches for queries, and full detail on request', t => {
   const { workspace, store, knowledge } = fixture(t);
   const body =
     'Orchid migration ' + 'background '.repeat(25) + 'Approval withdrawn. Read complete evidence.';
@@ -551,7 +560,7 @@ test('find defaults compact listings and concise actual matches while full remai
   assert.throws(() => knowledge.find({ detail: 'unknown' }));
 });
 
-test('concise find handles record-only, path-only and capture-only matches with complete locators', t => {
+test('short find results say where the match was: record, path or capture', t => {
   const { store, knowledge } = fixture(t);
   save(store, 'scope.md', 'Ordinary notes', {
     record: { ...record('Meeting'), scope: 'UniqueScope ' + 'x'.repeat(200) },
@@ -584,7 +593,7 @@ test('concise find handles record-only, path-only and capture-only matches with 
   );
 });
 
-test('concise source omission and pagination retain exact full-result identities', t => {
+test('short and full find results page through the same items', t => {
   const { workspace, store, knowledge } = fixture(t),
     evidence = [];
   for (let i = 0; i < 6; i++) {
@@ -613,4 +622,209 @@ test('concise source omission and pagination retain exact full-result identities
     ),
     false,
   );
+});
+
+test('approved sensitive content is kept but never searched, quoted or read without allowSensitive', t => {
+  const { workspace, store, knowledge } = fixture(t);
+  writeFileSync(join(workspace, 'needle-config.txt'), SECRET + '\nordinary line with needle\n');
+  const receipt = store.save({
+    context: 'note.md',
+    expectedVersion: null,
+    markdown: 'Summary mentions needle',
+    captures: [
+      capture('secret', SECRET + ' needle', {
+        sensitiveAcknowledgement: hash(SECRET + ' needle'),
+        label: 'Config needle',
+      }),
+    ],
+    evidence: ['needle-config.txt'],
+    sensitiveEvidence: [
+      { path: 'needle-config.txt', hash: hash(SECRET + '\nordinary line with needle\n') },
+    ],
+  });
+  const found = knowledge.find({ query: 'needle FAKE_SYNTHETIC', detail: 'full' });
+  assert.equal(JSON.stringify(found).includes('FAKE_SYNTHETIC'), false);
+  assert.equal(found.skippedSensitiveBodies, 2);
+  const sources = found.results[0].sources;
+  const captureHit = sources.find(item => item.capture === 'secret');
+  assert.equal(captureHit.sensitive, true);
+  assert.equal(captureHit.excerptOmitted, 'sensitive');
+  assert.equal(Object.hasOwn(captureHit, 'excerpt'), false);
+  const evidenceHit = sources.find(item => item.path === 'needle-config.txt');
+  assert.equal(evidenceHit.sensitive, true);
+  assert.equal(Object.hasOwn(evidenceHit, 'excerpt'), false);
+  // A term that occurs only in a sensitive body does not match.
+  assert.deepEqual(knowledge.find({ query: 'FAKE_SYNTHETIC' }).results, []);
+  for (const selector of [{ capture: 'secret' }, { source: 'needle-config.txt' }]) {
+    assert.throws(
+      () => knowledge.read({ context: 'note.md', ...selector }),
+      /marked sensitive.*allowSensitive/,
+    );
+    const read = knowledge.read({ context: 'note.md', ...selector, allowSensitive: true });
+    assert.equal(read.sensitive, true);
+    assert.match(read.text, /FAKE_SYNTHETIC/);
+  }
+  // Ordinary content is unaffected and reports sensitive:false.
+  assert.equal(knowledge.read({ context: 'note.md' }).sensitive, false);
+  const resumed = knowledge.resume({ context: 'note.md' });
+  assert.equal(resumed.captures[0].sensitive, true);
+  assert.equal(JSON.stringify(resumed).includes('FAKE_SYNTHETIC'), false);
+  assert.equal(resumed.version, receipt.version);
+});
+
+test('every find detail level keeps sensitive content out of results', t => {
+  const { store, knowledge } = fixture(t);
+  store.save({
+    context: 'sensitive.md',
+    expectedVersion: null,
+    markdown: 'Safe note',
+    captures: [
+      capture('secret', SECRET, { label: 'NamedNeedle', sensitiveAcknowledgement: hash(SECRET) }),
+    ],
+  });
+  for (const detail of ['compact', 'concise', 'full']) {
+    const page = knowledge.find({ query: 'NamedNeedle', detail });
+    assert.equal(page.results.length, 1);
+    assert.equal(page.skippedSensitiveBodies, 1);
+    assert.ok(!JSON.stringify(page).includes(SECRET));
+    assert.deepEqual(knowledge.find({ query: 'FAKE_SYNTHETIC', detail }).results, []);
+  }
+  assert.equal(
+    knowledge.find({ query: 'NamedNeedle' }).results[0].match.excerptOmitted,
+    'sensitive',
+  );
+});
+
+test('find explains each unreadable handoff folder and names the handoff when it can', t => {
+  const { workspace, store, knowledge } = fixture(t);
+  const contexts = join(workspace, '.glue', 'contexts');
+  store.save({ context: 'healthy.md', expectedVersion: null, markdown: 'fine' });
+  mkdirSync(join(contexts, hash('empty.md')), { recursive: true });
+  mkdirSync(join(contexts, hash('junk.md')), { recursive: true });
+  writeFileSync(join(contexts, hash('junk.md'), 'stray.txt'), 'x');
+  mkdirSync(join(contexts, hash('headless.md'), 'revisions'), { recursive: true });
+  writeFileSync(join(contexts, hash('headless.md'), '.initialized'), 'Glue handoff initialized\n');
+  // Verified revision whose context directory does not match its identity: path is known and
+  // reported.
+  const other = fixture(t);
+  const receipt = other.store.save({
+    context: 'moved.md',
+    expectedVersion: null,
+    markdown: 'MOVED_PRIVATE_TEXT',
+  });
+  const from = join(other.workspace, '.glue', 'contexts', hash('moved.md')),
+    to = join(contexts, hash('elsewhere.md'));
+  mkdirSync(join(to, 'revisions'), { recursive: true });
+  writeFileSync(join(to, 'HEAD.json'), JSON.stringify({ format: 1, version: receipt.version }));
+  writeFileSync(
+    join(to, 'revisions', receipt.version + '.json'),
+    readFileSync(join(from, 'revisions', receipt.version + '.json')),
+  );
+  const gaps = Object.fromEntries(knowledge.find({}).gaps.map(gap => [gap.contextId, gap]));
+  assert.equal(gaps[hash('empty.md')].reason, 'empty_directory');
+  assert.equal(gaps[hash('junk.md')].reason, 'uninitialized');
+  assert.equal(gaps[hash('headless.md')].reason, 'missing_head');
+  assert.equal(gaps[hash('elsewhere.md')].reason, 'context_unavailable');
+  assert.equal(gaps[hash('elsewhere.md')].context, 'moved.md');
+  assert.equal(JSON.stringify(gaps).includes('MOVED_PRIVATE_TEXT'), false);
+  for (const gap of Object.values(gaps)) assert.ok(gap.note);
+});
+
+test('a byte page says why text is missing: a split character or binary data', t => {
+  const { store, knowledge } = fixture(t);
+  store.save({
+    context: 'note.md',
+    expectedVersion: null,
+    markdown: 'ab日本語',
+    captures: [
+      capture('bin', '', {
+        base64: Buffer.from([0xff, 0xfe, 0x00, 0x41]).toString('base64'),
+        representation: 'original-bytes',
+      }),
+    ],
+  });
+  const whole = knowledge.read({ context: 'note.md' });
+  assert.equal(whole.text, 'ab日本語');
+  assert.equal(Object.hasOwn(whole, 'textOmitted'), false);
+  const split = knowledge.read({ context: 'note.md', offset: 3, limit: 4 });
+  assert.equal(Object.hasOwn(split, 'text'), false);
+  assert.match(split.textOmitted, /inside a multi-byte UTF-8 character/);
+  assert.equal(Buffer.from(split.base64, 'base64').length, 4);
+  assert.equal(split.nextOffset, 7);
+  const aligned = knowledge.read({ context: 'note.md', offset: 2, limit: 6 });
+  assert.equal(aligned.text, '日本');
+  const binary = knowledge.read({ context: 'note.md', capture: 'bin' });
+  assert.match(binary.textOmitted, /not independently valid UTF-8/);
+  assert.equal(binary.base64, Buffer.from([0xff, 0xfe, 0x00, 0x41]).toString('base64'));
+});
+
+test('status filters hide withdrawn work from find, but it stays readable', t => {
+  const { store, knowledge } = fixture(t);
+  const record = status => ({
+    title: 'Sample',
+    kind: 'note',
+    scope: 'test',
+    provenance: 'assistant',
+    status,
+  });
+  const a = store.save({
+    context: 'a.md',
+    expectedVersion: null,
+    markdown: 'sample alpha',
+    record: record('active'),
+  });
+  const w = store.save({
+    context: 'a.md',
+    expectedVersion: a.version,
+    markdown: 'sample alpha withdrawn',
+    record: record('withdrawn'),
+  });
+  const b = store.save({
+    context: 'b.md',
+    expectedVersion: null,
+    markdown: 'sample beta',
+    record: record('proposed'),
+  });
+  const c = store.save({ context: 'c.md', expectedVersion: null, markdown: 'sample gamma' });
+  const s = store.save({
+    context: 'd.md',
+    expectedVersion: null,
+    markdown: 'sample delta',
+    record: { ...record('superseded'), supersededBy: { context: 'b.md', version: b.version } },
+  });
+  const paths = page => page.results.map(item => item.context).sort();
+  assert.deepEqual(paths(knowledge.find({ query: 'sample' })), ['a.md', 'b.md', 'c.md', 'd.md']);
+  const open = knowledge.find({ query: 'sample', view: 'open' });
+  assert.deepEqual(paths(open), ['b.md', 'c.md']);
+  assert.deepEqual(open.filter, { view: 'open', statuses: ['active', 'proposed', 'none'] });
+  assert.equal(open.scannedRevisions, 4);
+  assert.deepEqual(paths(knowledge.find({ query: 'sample', status: ['withdrawn'] })), ['a.md']);
+  assert.deepEqual(paths(knowledge.find({ query: 'sample', status: ['none'] })), ['c.md']);
+  assert.deepEqual(
+    paths(knowledge.find({ query: 'sample', status: ['superseded'], view: 'open' })),
+    ['d.md'],
+  );
+  // History: the earlier active revision of a.md is open work again when history is included.
+  const history = knowledge.find({ query: 'sample', view: 'open', includeHistory: true });
+  assert.deepEqual(
+    history.results.filter(item => item.context === 'a.md').map(item => item.version),
+    [a.version],
+  );
+  // Paged open view with cursor keeps the filter and never duplicates.
+  const seen = [];
+  let cursor;
+  do {
+    const page = knowledge.find({
+      query: 'sample',
+      view: 'open',
+      limit: 1,
+      ...(cursor ? { cursor } : {}),
+    });
+    seen.push(...page.results.map(r => r.context));
+    cursor = page.next;
+  } while (cursor);
+  assert.deepEqual(seen.sort(), ['b.md', 'c.md']);
+  // Withdrawn remains readable and resumable: nothing was deleted.
+  assert.equal(knowledge.read({ context: 'a.md' }).version, w.version);
+  assert.equal(knowledge.resume({ context: 'd.md' }).version, s.version);
 });

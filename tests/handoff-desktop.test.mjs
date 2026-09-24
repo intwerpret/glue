@@ -68,7 +68,7 @@ const result = child => {
   return JSON.parse(JSON.parse(child.stdout.trim().split('\n').at(-1)).result.content[0].text);
 };
 
-test('Desktop requires explicit author and a single required folder without a default', t => {
+test('the Desktop extension needs an author and asks for exactly one project folder', t => {
   const { bundle } = fixture(t);
   assert.throws(() => packageClaudeDesktop(bundle), /author/);
   assert.equal(existsSync(bundle), false);
@@ -84,7 +84,7 @@ test('Desktop requires explicit author and a single required folder without a de
   assert.equal(existsSync(join(bundle, '.claude-plugin')), false);
 });
 
-test('Desktop refuses missing/invalid binding without falling back to cwd or Claude Code', t => {
+test('the Desktop extension refuses to start without a valid project folder', t => {
   const { root, bundle, project } = fixture(t);
   packageClaudeDesktop(bundle, 'Synthetic fixture author');
   for (const value of [
@@ -103,7 +103,7 @@ test('Desktop refuses missing/invalid binding without falling back to cwd or Cla
   assert.deepEqual(readdirSync(project), []);
 });
 
-test('manifest-driven Desktop server isolates selected project and retains correction/history across restarts', t => {
+test('the Desktop extension uses only the chosen folder and keeps history across restarts', t => {
   const { bundle, project, other } = fixture(t);
   const receipt = packageClaudeDesktop(bundle, 'Synthetic fixture author');
   writeFileSync(join(other, 'private.txt'), 'OTHER_PROJECT_PRIVATE_MARKER');
@@ -146,7 +146,7 @@ test('manifest-driven Desktop server isolates selected project and retains corre
   assert.equal(JSON.parse(discovery.stdout.trim().split('\n').at(-1)).result.tools.length, 6);
 });
 
-test('Desktop launcher serves when the host runtime adds its own process arguments, and never binds from them', t => {
+test('the Desktop extension ignores extra arguments from the host when choosing the project', t => {
   const { bundle, project, other } = fixture(t);
   packageClaudeDesktop(bundle, 'Synthetic fixture author');
   const child = run(bundle, project, project, undefined, ['--host-added-flag', other]);
@@ -159,7 +159,7 @@ test('Desktop launcher serves when the host runtime adds its own process argumen
   assert.deepEqual(readdirSync(other), []);
 });
 
-test('Desktop launcher failure exits promptly and names the failed stage without paths', t => {
+test('a failed Desktop start exits at once and names the failed step without paths', t => {
   const { root, bundle, project } = fixture(t);
   packageClaudeDesktop(bundle, 'Synthetic fixture author');
   const child = run(bundle, join(root, 'missing'), project);
@@ -169,7 +169,7 @@ test('Desktop launcher failure exits promptly and names the failed stage without
   assert.equal(child.stderr.includes(root), false);
 });
 
-test('Desktop bundle entry and runtime load through require(), as a host-bundled runtime may load them', t => {
+test('the Desktop extension also loads through require()', t => {
   const { bundle, project } = fixture(t);
   packageClaudeDesktop(bundle, 'Synthetic fixture author');
   const lf = String.fromCharCode(10);

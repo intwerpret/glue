@@ -38,7 +38,7 @@ const first = {
   evidence: [],
 };
 
-test('a write lock that cannot be removed does not hide a committed save', t => {
+test('a save still counts when its lock cannot be removed, and the result says so', t => {
   const workspace = fixture(t),
     store = new Handoffs(workspace);
   const saved = withLockRemovalDenied(() => store.save(first));
@@ -53,7 +53,7 @@ test('a write lock that cannot be removed does not hide a committed save', t => 
   );
 });
 
-test('a lock directory that outlives its owner file is reported the same way', t => {
+test('a lock folder left without its owner file is reported the same way', t => {
   const workspace = fixture(t),
     store = new Handoffs(workspace);
   const saved = withLockRemovalDenied(() => store.save(first), 'rmdirSync', 'EBUSY');
@@ -101,7 +101,7 @@ test('an operation failure is reported with the lock it left behind', t => {
   );
 });
 
-test('a rejected first save names the lock that now blocks new contexts', t => {
+test('a refused first save reports the lock it left, which blocks new handoffs', t => {
   const workspace = fixture(t),
     store = new Handoffs(workspace);
   assert.throws(
@@ -127,7 +127,7 @@ test('release is attempted once and never throws', t => {
   assert.ok(fs.existsSync(join(lock, 'owner.json')));
 });
 
-test('a partial owner write preserves its error and leaves no stale lock', t => {
+test('a failed lock owner write reports its error and leaves no lock behind', t => {
   const workspace = fixture(t),
     owner = join(workspace, '.write-lock', 'owner.json');
   const originalOpen = fs.openSync,
@@ -162,7 +162,7 @@ test('a partial owner write preserves its error and leaves no stale lock', t => 
   assert.equal(release(), undefined);
 });
 
-test('owner creation collision preserves a file this call did not create', t => {
+test('taking a lock never deletes an owner file that another process created', t => {
   const workspace = fixture(t),
     owner = join(workspace, '.write-lock', 'owner.json');
   const originalOpen = fs.openSync;
@@ -187,7 +187,7 @@ test('owner creation collision preserves a file this call did not create', t => 
   assert.equal(fs.readFileSync(owner, 'utf8'), 'other owner');
 });
 
-test('a namespace lock left by the first transfer does not block later transfers', t => {
+test('a lock left by the first transfer does not block later transfers', t => {
   const workspace = fixture(t),
     store = new Handoffs(workspace),
     transfers = new Transfers(store),
@@ -204,7 +204,7 @@ test('a namespace lock left by the first transfer does not block later transfers
   assert.equal(transfers.run(selection).payloadHash, preview.payloadHash);
 });
 
-test('installation lock rejects overlap without disturbing its owner and remains separate from write locks', t => {
+test('only one installation runs at a time, and it does not block saves', t => {
   const workspace = fixture(t),
     owner = join(workspace, '.glue-install-lock/owner.json');
   assert.equal(
@@ -231,7 +231,7 @@ test('installation lock rejects overlap without disturbing its owner and remains
   assert.deepEqual(fs.readdirSync(workspace), []);
 });
 
-test('installation lock releases after operation or owner creation failure', t => {
+test('the installation lock is released when the installation fails', t => {
   const workspace = fixture(t),
     failure = new Error('operation failed');
   assert.throws(
@@ -265,7 +265,7 @@ test('installation lock releases after operation or owner creation failure', t =
   );
 });
 
-test('installation lock reports permission failures without claiming contention', t => {
+test('a permission error on the installation lock is not reported as busy', t => {
   const workspace = fixture(t),
     original = fs.mkdirSync,
     lock = join(workspace, '.glue-install-lock');

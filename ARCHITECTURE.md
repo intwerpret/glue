@@ -179,10 +179,9 @@ A new runtime module must be added to `runtimeModules` in
   Tests import from `dist/` or start `dist/mcp.js` as a subprocess.
 - Every test uses a disposable temporary project. Filesystem failures are
   injected by patching `node:fs` and calling `syncBuiltinESMExports`.
-- `handoff.test.mjs` covers saving, conflicts, retries and recovery.
-  `handoff-protocol.test.mjs` covers MCP framing and lifecycle.
-  `handoff-harness.test.mjs` drives the tools end to end. The other files are
-  named for their area: knowledge, privacy, transfer, portable identity, locks,
-  storage, installation, plugin, desktop and the one-command installer.
+- Each file covers one area, named in the file: saving, evidence, the working
+  copy, recovery, paths, knowledge, privacy, transfer, locks, storage, the MCP
+  protocol, installation, the one-command installer, plugin and desktop.
+  [tests/README.md](tests/README.md) lists them.
 - `npm run typecheck` and `npm run format:check` run in CI with the tests, on
   Windows, macOS and Linux with Node 22 and 24.

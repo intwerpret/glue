@@ -30,7 +30,7 @@ const run = (cwd, args = []) =>
     timeout: 120000,
   });
 
-test('one command from inside a project installs for the detected host, ignores Glue files in Git and passes the check', t => {
+test('one command installs for the detected host and adds Glue files to .gitignore', t => {
   for (const [marker, directory, ignored] of [
     [null, '.agents/skills/glue', '.codex/config.toml'],
     ['.claude', '.claude/skills/glue', '.mcp.json'],
@@ -62,7 +62,7 @@ test('one command from inside a project installs for the detected host, ignores 
   }
 });
 
-test('the easy installer refuses the Glue source folder, a missing folder and Claude Desktop without changing anything', t => {
+test('install.mjs refuses the source folder, a missing folder and Claude Desktop', t => {
   const project = fixture(t);
   const inSource = run(resolve('.'));
   assert.notEqual(inSource.status, 0);
@@ -82,7 +82,7 @@ function git(project, args) {
   return child.stdout;
 }
 
-test('invalid Git exclusion target refuses both hosts before activation and permits retry after repair', t => {
+test('an unusable .gitignore stops the install, and the install works once it is fixed', t => {
   for (const host of ['codex', 'claude-code']) {
     const project = fixture(t);
     git(project, ['init', '--quiet']);
@@ -105,7 +105,7 @@ test('invalid Git exclusion target refuses both hosts before activation and perm
   }
 });
 
-test('tracked Glue files stop installation without disclosing names or changing tracking', t => {
+test('a repository that already tracks .glue files stops the install without naming them', t => {
   const project = fixture(t);
   git(project, ['init', '--quiet']);
   mkdirSync(join(project, '.glue'));
@@ -120,7 +120,7 @@ test('tracked Glue files stop installation without disclosing names or changing 
   assert.equal(existsSync(join(project, '.agents/skills/glue')), false);
 });
 
-test('nested Git projects and later negation rules get effective exclusions without showing existing contents', t => {
+test('exclusions work in nested repositories and override earlier negation rules', t => {
   const repository = fixture(t);
   git(repository, ['init', '--quiet']);
   const project = join(repository, 'nested');
@@ -135,7 +135,7 @@ test('nested Git projects and later negation rules get effective exclusions with
     assert.equal(git(project, ['check-ignore', '--no-index', name]).trim(), name);
 });
 
-test('exclusion write errors and exclusions changed before connection activation roll back only the new package', t => {
+test('if .gitignore cannot be written or changes mid-install, only the new package is removed', t => {
   for (const host of ['codex', 'claude-code'])
     for (const failure of ['write', 'activation']) {
       const project = fixture(t);
@@ -178,7 +178,7 @@ test('exclusion write errors and exclusions changed before connection activation
     }
 });
 
-test('partial wildcard exclusions cannot leave individual saved files exposed', t => {
+test('a .glue/* rule with exceptions still leaves no saved file unignored', t => {
   const project = fixture(t);
   git(project, ['init', '--quiet']);
   mkdirSync(join(project, '.glue'));
@@ -190,7 +190,7 @@ test('partial wildcard exclusions cannot leave individual saved files exposed', 
   assert.equal(readFileSync(join(project, '.glue', 'keep'), 'utf8'), 'preserved');
 });
 
-test('Git exclusion checks do not run commands or hooks configured by the project repository', async t => {
+test('checking .gitignore runs no hooks or commands from the repository', async t => {
   const { protectProjectGit } = await import('../scripts/project-exclusions.mjs');
   const project = fixture(t);
   git(project, ['init', '--quiet']);

@@ -57,7 +57,7 @@ function node(args, input) {
   assert.equal(p.status, 0, p.stdout + '\n' + p.stderr);
   return JSON.parse(mcp ? p.stdout.trim().split('\n').at(-1) : p.stdout);
 }
-test('fresh Codex installation preserves unrelated configuration and supports MCP and recovery', t => {
+test('a Codex install keeps your other settings, and its tools and recovery work', t => {
   const workspace = fixture(t);
   mkdirSync(join(workspace, '.codex'));
   writeFileSync(join(workspace, '.codex/config.toml'), 'model = "example"\n');
@@ -130,7 +130,7 @@ test('fresh Codex installation preserves unrelated configuration and supports MC
   assert.deepEqual(collectFiles(workspace), before);
 });
 
-test('development install pins an independent runtime and detects installed drift', t => {
+test('a development install runs its own copy of the build and detects changes to it', t => {
   const source = fixture(t);
   for (const path of [
     'src',
@@ -178,7 +178,7 @@ test('development install pins an independent runtime and detects installed drif
   writeFileSync(runtime, pinned + '\n// changed installed package');
   assert.notEqual(run([check]).status, 0);
 });
-test('unsupported installation options and conflicting MCP configuration leave workspace unchanged', t => {
+test('unknown options or an existing server named glue stop the install with no changes', t => {
   const workspace = fixture(t);
   for (const option of ['--update', '--dry-run', '--unknown'])
     assert.notEqual(run(['scripts/install-skill.mjs', workspace, option]).status, 0);
@@ -194,7 +194,7 @@ test('unsupported installation options and conflicting MCP configuration leave w
   assert.match(failed.stderr, /unrelated/);
   assert.deepEqual(collectFiles(workspace), before);
 });
-test('failed configuration activation cleans the staged fresh package', t => {
+test('if writing the configuration fails, the half-installed package is removed', t => {
   const workspace = fixture(t);
   const failed = run([
     '--input-type=module',
@@ -219,7 +219,7 @@ test('failed configuration activation cleans the staged fresh package', t => {
   );
 });
 
-test('existing Glue connections in alternate TOML forms are preserved and refused', t => {
+test('an existing glue server in any TOML form stops the install without changes', t => {
   const configurations = [
     '[mcp_servers]\nglue = { command = "existing-server" }\n',
     'mcp_servers.glue.command = "existing-server"\n',
@@ -241,7 +241,7 @@ test('existing Glue connections in alternate TOML forms are preserved and refuse
   }
 });
 
-test('invalid or unextendable configuration is refused before installation writes', t => {
+test('an invalid or unusable config.toml stops the install before anything is written', t => {
   for (const config of [
     'model = "unterminated\n',
     'model = "one"\nmodel = "two"\n',
@@ -261,7 +261,7 @@ test('invalid or unextendable configuration is refused before installation write
   }
 });
 
-test('installation preserves comments, CRLF, Unicode and unrelated server settings exactly', t => {
+test('installing keeps comments, line endings and other servers in config.toml byte for byte', t => {
   const workspace = fixture(t);
   mkdirSync(join(workspace, '.codex'));
   const original =
@@ -274,7 +274,7 @@ test('installation preserves comments, CRLF, Unicode and unrelated server settin
   assert.equal(existsSync(join(destination, 'runtime/node_modules/smol-toml')), false);
 });
 
-test('installed checker validates actual TOML values rather than matching text anywhere', t => {
+test('the checker reads real TOML values, not text that merely looks right', t => {
   const workspace = fixture(t),
     { destination } = node(['scripts/install-skill.mjs', workspace]);
   const config = join(workspace, '.codex/config.toml'),
@@ -312,7 +312,7 @@ test('installed checker validates actual TOML values rather than matching text a
   }
 });
 
-test('installation preserves an existing configuration recovery file', t => {
+test('installing leaves an existing config.toml.tmp alone', t => {
   const workspace = fixture(t);
   mkdirSync(join(workspace, '.codex'));
   const config = join(workspace, '.codex/config.toml');
@@ -328,7 +328,7 @@ test('installation preserves an existing configuration recovery file', t => {
   ]);
 });
 
-test('checker refuses disabled and filtered required tools', t => {
+test('the checker fails when Glue or one of its tools is disabled', t => {
   const workspace = fixture(t),
     { destination } = node(['scripts/install-skill.mjs', workspace]);
   const file = join(workspace, '.codex/config.toml'),
@@ -348,7 +348,7 @@ test('checker refuses disabled and filtered required tools', t => {
   assert.equal(node([check]).ok, true);
 });
 
-test('Claude Code project install preserves unrelated JSON settings and binds the workspace', t => {
+test('a Claude Code install keeps other .mcp.json settings and binds this project', t => {
   const workspace = fixture(t),
     file = join(workspace, '.mcp.json');
   const unrelated = {
@@ -368,7 +368,7 @@ test('Claude Code project install preserves unrelated JSON settings and binds th
   assert.equal(existsSync(join(workspace, '.codex')), false);
 });
 
-test('Claude JSON rejects duplicate keys, unsafe integers and conflicts without disclosure or writes', t => {
+test('a .mcp.json with duplicate keys, unsafe numbers or a glue server stops the install', t => {
   for (const text of [
     '{"mcpServers":{},"mcpServers":{}}',
     '{"other":{"key":1,"key":2}}',
@@ -391,7 +391,7 @@ test('Claude JSON rejects duplicate keys, unsafe integers and conflicts without 
   }
 });
 
-test('Desktop requires an explicit config and project name and keeps other project bindings', t => {
+test('a Claude Desktop install needs a config path and a name, and keeps other projects', t => {
   const workspace = fixture(t),
     other = fixture(t),
     config = join(other, 'claude_desktop_config.json');
@@ -432,7 +432,7 @@ test('Desktop requires an explicit config and project name and keeps other proje
   assert.match(failed.stderr, /does not match/);
 });
 
-test('shared Desktop configuration contention preserves unrelated settings and rolls back package', t => {
+test('a busy Claude Desktop config stops the install and removes the new package', t => {
   const workspace = fixture(t),
     profile = fixture(t),
     config = join(profile, 'claude_desktop_config.json');
@@ -458,7 +458,7 @@ test('shared Desktop configuration contention preserves unrelated settings and r
   assert.ok(existsSync(join(lock, 'owner.json')));
 });
 
-test('workspace installs copy an explicit host-specific inventory and record no machine path for project-local configuration', t => {
+test('project installs copy a fixed list of files and store no machine paths', t => {
   for (const [host, directory] of [
     ['codex', '.agents/skills/glue'],
     ['claude-code', '.claude/skills/glue'],

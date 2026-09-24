@@ -11,6 +11,8 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { Handoffs } from '../dist/handoff.js';
+import { collectFiles } from '../scripts/installation-files.mjs';
 
 const initialize = (id = 'initialize', protocolVersion = '2025-11-25') => ({
   jsonrpc: '2.0',
@@ -29,14 +31,20 @@ const request = (id, method, params) => ({
   method,
   ...(params === undefined ? {} : { params }),
 });
+const call = (id, name, args) => request(id, 'tools/call', { name, arguments: args });
+const resultText = row => row.result.content[0].text;
 function fixture(t) {
   const workspace = mkdtempSync(join(realpathSync(tmpdir()), 'glue-protocol-'));
   t.after(() => rmSync(workspace, { recursive: true, force: true }));
+  // Each message becomes one line. A Buffer is sent as raw bytes, with no newline added.
   const run = messages => {
-    const input =
-      messages
-        .map(value => (typeof value === 'string' ? value : JSON.stringify(value)))
-        .join('\n') + '\n';
+    const input = Buffer.concat(
+      messages.map(value =>
+        Buffer.isBuffer(value)
+          ? value
+          : Buffer.from((typeof value === 'string' ? value : JSON.stringify(value)) + '\n'),
+      ),
+    );
     const child = spawnSync(process.execPath, ['dist/mcp.js', workspace], {
       input,
       encoding: 'utf8',
@@ -50,7 +58,7 @@ function fixture(t) {
   return { workspace, run };
 }
 
-test('MCP negotiates an implemented version, reports package identity and accepts host metadata', t => {
+test('initialize negotiates a supported version, and every tool is marked local and non-destructive', t => {
   const { workspace, run } = fixture(t);
   const version = JSON.parse(
     readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
@@ -107,7 +115,7 @@ test('MCP negotiates an implemented version, reports package identity and accept
   assert.deepEqual(readdirSync(workspace), []);
 });
 
-test('MCP rejects malformed initialization without changing state and requires initialized notification', t => {
+test('tools stay unavailable until a valid initialize and the initialized notification', t => {
   const { workspace, run } = fixture(t);
   const rows = run([
     request(1, 'tools/call', {
@@ -144,7 +152,7 @@ test('MCP rejects malformed initialization without changing state and requires i
   assert.deepEqual(readdirSync(workspace), []);
 });
 
-test('MCP distinguishes parse, envelope, method and parameter failures and keeps serving', t => {
+test('each kind of malformed message gets its own JSON-RPC error, and the server keeps going', t => {
   const { workspace, run } = fixture(t);
   const rows = run([
     '{broken',
@@ -181,7 +189,7 @@ test('MCP distinguishes parse, envelope, method and parameter failures and keeps
   assert.deepEqual(readdirSync(workspace), []);
 });
 
-test('MCP never executes tool notifications or responds to ordinary notifications', t => {
+test('a tool call sent as a notification is ignored, and notifications get no reply', t => {
   const { workspace, run } = fixture(t);
   const rows = run([
     initialize(),
@@ -205,30 +213,161 @@ test('MCP never executes tool notifications or responds to ordinary notification
   assert.deepEqual(readdirSync(workspace), []);
 });
 
-test('MCP tool validation and execution failures remain tool errors after initialization', t => {
-  const { workspace, run } = fixture(t);
+test('every tool advertises a flat object schema with each field described', t => {
+  const { run } = fixture(t);
   const rows = run([
     initialize(),
     ready,
-    request(1, 'tools/call', { name: 'glue_resume', arguments: { context: 17 } }),
-    request(2, 'tools/call', {
-      name: 'glue_checkpoint',
-      arguments: { context: 'note.md', expectedVersion: 'a'.repeat(64), markdown: 'stale' },
+    request('list', 'tools/list'),
+    call('find', 'glue_find', { query: 'anything' }),
+  ]);
+  const tools = rows[1].result.tools;
+  const transfer = tools.find(tool => tool.name === 'glue_transfer');
+  assert.equal(transfer.inputSchema.type, 'object');
+  assert.equal(Object.hasOwn(transfer.inputSchema, 'anyOf'), false);
+  assert.deepEqual(transfer.inputSchema.required, ['action']);
+  assert.deepEqual(transfer.inputSchema.properties.action.enum, [
+    'preview',
+    'export',
+    'preview-import',
+    'check',
+    'import',
+  ]);
+  for (const field of [
+    'context',
+    'version',
+    'captures',
+    'evidence',
+    'derivativeMarkdown',
+    'reviewedHash',
+    'bundle',
+    'expectedVersion',
+    'workingCopyHash',
+    'upstream',
+  ])
+    assert.ok(transfer.inputSchema.properties[field]?.description, field + ' is documented');
+  assert.match(
+    transfer.inputSchema.properties.captures.description,
+    /does not include a capture automatically/,
+  );
+  assert.match(transfer.inputSchema.properties.expectedVersion.description, /create only if/);
+  // Checkpoint documents the create-only meaning of null too.
+  const checkpoint = tools.find(tool => tool.name === 'glue_checkpoint');
+  assert.match(
+    checkpoint.inputSchema.properties.expectedVersion.description,
+    /create only if this context does not already exist/,
+  );
+  assert.match(
+    checkpoint.inputSchema.properties.captures.description,
+    /only permits later selection/,
+  );
+  // Every advertised tool is an object with properties at the top level (no bare unions).
+  for (const tool of tools) {
+    assert.equal(tool.inputSchema.type, 'object', tool.name);
+    assert.ok(Object.keys(tool.inputSchema.properties ?? {}).length > 0, tool.name);
+  }
+  assert.deepEqual(
+    tools.find(tool => tool.name === 'glue_find').inputSchema.properties.detail.enum,
+    ['compact', 'concise', 'full'],
+  );
+  assert.equal(JSON.parse(resultText(rows[2])).detail, 'concise');
+});
+
+test('argument errors name the field and the expected shape without repeating the value', t => {
+  const { run } = fixture(t);
+  const marker = 'PRIVATE_SUBMITTED_VALUE_9';
+  const rows = run([
+    initialize(),
+    ready,
+    call(1, 'glue_transfer', {}),
+    call(2, 'glue_transfer', { action: marker }),
+    call(3, 'glue_transfer', { action: 'preview' }),
+    call(4, 'glue_transfer', {
+      action: 'import',
+      bundle: marker,
+      reviewedHash: marker,
+      context: 'a.md',
+      expectedVersion: 'null',
     }),
-    request(3, 'tools/call', {
+    call(5, 'glue_transfer', { action: 'check', context: 'a.md', upstream: null, [marker]: 1 }),
+    call(6, 'glue_checkpoint', { context: 'a.md', expectedVersion: 'null', markdown: 'x' }),
+  ]);
+  const texts = rows.slice(1).map(row => {
+    assert.equal(row.result.isError, true);
+    return row.result.content[0].text;
+  });
+  for (const text of texts) assert.equal(text.includes(marker), false, text);
+  assert.match(texts[0], /action, one of: preview, export, preview-import, check, import/);
+  assert.match(texts[0], /import requires bundle, reviewedHash, context, expectedVersion/);
+  assert.match(texts[1], /action, one of/);
+  assert.match(
+    texts[2],
+    /context: expected string \(missing\); version: expected string \(missing\)/,
+  );
+  assert.match(texts[3], /bundle: expected object/);
+  assert.match(texts[3], /expectedVersion: .*or JSON null \(not the string "null"\)/);
+  assert.match(texts[4], /1 unrecognized field/);
+  assert.match(texts[5], /expectedVersion: .*JSON null/);
+});
+
+test('bad tool arguments and failed tool calls come back as tool errors and write nothing', t => {
+  const { workspace, run } = fixture(t);
+  const store = new Handoffs(workspace),
+    handoff = {
+      context: 'notes/handoff.md',
+      expectedVersion: null,
+      markdown: '# Context\nOriginal user decision.',
+      evidence: [],
+    },
+    saved = store.save(handoff),
+    before = collectFiles(workspace);
+  const cases = [
+    ['glue_resume', undefined],
+    ['glue_resume', null],
+    ['glue_resume', { context: 42 }],
+    ['glue_resume', { context: handoff.context, extra: true }],
+    ['glue_checkpoint', {}],
+    ['glue_checkpoint', { ...handoff, markdown: 42 }],
+    ['glue_checkpoint', { ...handoff, expectedVersion: 42 }],
+    ['glue_checkpoint', { ...handoff, extra: true }],
+    ['glue_find', null],
+    ['glue_find', { limit: 0 }],
+    ['glue_find', { extra: true }],
+    ['glue_read', {}],
+    ['glue_read', { context: handoff.context, offset: -1 }],
+    ['glue_read', { context: handoff.context, extra: true }],
+  ];
+  // The MCP layer leaves validation to the core API, so the core refuses the same arguments.
+  for (const [name, args] of cases) {
+    if (name === 'glue_resume') assert.throws(() => store.resume(args));
+    if (name === 'glue_checkpoint') assert.throws(() => store.save(args));
+  }
+  // Valid arguments that fail while running: this context has no such version.
+  cases.push([
+    'glue_checkpoint',
+    { context: 'note.md', expectedVersion: 'a'.repeat(64), markdown: 'stale' },
+  ]);
+  const rows = run([
+    initialize(),
+    ready,
+    ...cases.map(([name, args], id) => call(id, name, args)),
+    request('last', 'tools/call', {
       name: 'glue_resume',
-      arguments: { context: 'note.md' },
+      arguments: { context: handoff.context },
       _meta: { progressToken: 3 },
     }),
   ]);
-  assert.equal(rows[1].result.isError, true);
-  assert.equal(rows[2].result.isError, true);
-  assert.equal(rows[1].error, undefined);
-  assert.equal(JSON.parse(rows[3].result.content[0].text).version, null);
-  assert.equal(readdirSync(workspace).includes('note.md'), false);
+  assert.equal(rows.length, cases.length + 2);
+  for (let i = 0; i < cases.length; i++) {
+    assert.equal(rows[i + 1].id, i);
+    assert.equal(rows[i + 1].error, undefined);
+    assert.equal(rows[i + 1].result.isError, true);
+  }
+  assert.equal(JSON.parse(resultText(rows.at(-1))).version, saved.version);
+  assert.deepEqual(collectFiles(workspace), before);
 });
 
-test('MCP error diagnostics omit malformed values and absolute project paths', t => {
+test('error messages never repeat submitted values or the absolute project path', t => {
   const { workspace, run } = fixture(t);
   const marker = 'private-malformed-value-42';
   const rows = run([
@@ -275,10 +414,7 @@ test('MCP error diagnostics omit malformed values and absolute project paths', t
   assert.match(rows[2].result.content[0].text, /Filesystem operation failed \(ENOENT\)/);
 });
 
-const call = (id, name, args) => request(id, 'tools/call', { name, arguments: args });
-const resultText = row => row.result.content[0].text;
-
-test('checkpoint callers cannot declare import provenance; only a transfer import records it', t => {
+test('a checkpoint cannot claim to be an import; only glue_transfer records one', t => {
   const { run } = fixture(t);
   const imported = {
     origin: { namespace: 'example', id: 'forged', version: 'v1' },
@@ -306,7 +442,7 @@ test('checkpoint callers cannot declare import provenance; only a transfer impor
   assert.equal(JSON.parse(resultText(rows[3])).version, null);
 });
 
-test('damaged saved files are reported as damaged history, not as invalid caller arguments', t => {
+test('damaged saved data is reported as damage, not as a bad request', t => {
   const { workspace, run } = fixture(t);
   run([
     initialize(),
@@ -330,7 +466,7 @@ test('damaged saved files are reported as damaged history, not as invalid caller
   assert.equal(resultText(rows[1]).includes('not-a-digest'), false);
 });
 
-test('MCP serves a host runtime whose stdin only emits data events and whose stdout ignores write callbacks', t => {
+test('the server works when the host supplies stdin as a bare event emitter', t => {
   const { workspace } = fixture(t);
   // Stand-in for a bundled host runtime: stdin is a bare event emitter, not an async-iterable
   // stream.
@@ -361,7 +497,7 @@ test('MCP serves a host runtime whose stdin only emits data events and whose std
   assert.equal(rows[1].result.tools.length, 6);
 });
 
-test('event-only host input refuses an excessive queued burst without retaining an unlimited backlog', t => {
+test('with event-emitter input, a flood of queued requests is refused instead of buffered forever', t => {
   const { workspace } = fixture(t);
   for (const [count, padding] of [
     [12, 512 * 1024],
@@ -394,7 +530,7 @@ test('event-only host input refuses an excessive queued burst without retaining 
   assert.deepEqual(readdirSync(workspace), []);
 });
 
-test('ordinary stdin applies backpressure and serves a burst larger than the host fallback queue limit', t => {
+test('with ordinary stdin, a burst of large requests is served in full', t => {
   const { run } = fixture(t);
   const rows = run(
     Array.from({ length: 12 }, (_, id) => request(id, 'ping', { padding: 'x'.repeat(512 * 1024) })),
@@ -406,7 +542,7 @@ test('ordinary stdin applies backpressure and serves a burst larger than the hos
   for (const row of rows) assert.deepEqual(row.result, {});
 });
 
-test('output closure/errors settle pending or idle bundled-host service and remove listeners', t => {
+test('the server stops cleanly and removes its listeners when output closes or fails', t => {
   const { workspace } = fixture(t);
   for (const mode of ['close-blocked', 'error-blocked', 'error-accepted', 'close-idle']) {
     const harness = `
@@ -431,7 +567,7 @@ test('output closure/errors settle pending or idle bundled-host service and remo
   }
 });
 
-test('closed native stdout ends cleanly instead of crashing on EPIPE', async t => {
+test('a closed stdout ends the server cleanly instead of crashing', async t => {
   const { workspace } = fixture(t);
   const { spawn } = await import('node:child_process');
   const child = spawn(process.execPath, ['dist/mcp.js', workspace], {
@@ -460,7 +596,7 @@ test('closed native stdout ends cleanly instead of crashing on EPIPE', async t =
   }
 });
 
-test('lost checkpoint response retains the committed revision and an identical retry replays it', t => {
+test('if the reply to a save is lost, the save is kept and resending it replays the result', t => {
   const { workspace } = fixture(t);
   const save = {
     context: 'lost-response.md',
@@ -514,7 +650,7 @@ test('lost checkpoint response retains the committed revision and an identical r
   assert.equal(readdirSync(workspace).includes('after-close.md'), false);
 });
 
-test('an oversized request line is refused without ending the connection', t => {
+test('a request over 2 MiB is refused, and the next request is still served', t => {
   const { workspace, run } = fixture(t);
   const responses = run([
     initialize(),
@@ -532,7 +668,7 @@ test('an oversized request line is refused without ending the connection', t => 
   assert.deepEqual(readdirSync(workspace), []);
 });
 
-test('MCP handles tiny input fragments with bounded copying and recovers after a fragmented oversized line', t => {
+test('input arriving in small pieces is reassembled without repeated copying', t => {
   const { workspace } = fixture(t);
   const harness = `
     import assert from 'node:assert/strict';
@@ -574,5 +710,53 @@ test('MCP handles tiny input fragments with bounded copying and recovers after a
   assert.deepEqual(responses[1].result, {});
   assert.equal(responses[2].error.code, -32600);
   assert.deepEqual(responses[3].result, {});
+  assert.deepEqual(readdirSync(workspace), []);
+});
+
+test('a request with invalid UTF-8 is refused, and later requests still work', t => {
+  const { workspace, run } = fixture(t);
+  const store = new Handoffs(workspace),
+    handoff = {
+      context: 'notes/handoff.md',
+      expectedVersion: null,
+      markdown: '# Context\nOriginal user decision.',
+      evidence: [],
+    },
+    saved = store.save(handoff),
+    before = collectFiles(workspace);
+  const malformed = Buffer.concat([
+    Buffer.from(
+      '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"glue_checkpoint","arguments":{"context":"unexpected.md","expectedVersion":null,"markdown":"',
+    ),
+    Buffer.from([255]),
+    Buffer.from('"}}}\n'),
+  ]);
+  const rows = run([
+    initialize(),
+    ready,
+    malformed,
+    { jsonrpc: '2.0', id: 'Unicode 🙂', method: 'ping' },
+    // The last request ends the input without a newline.
+    Buffer.from(JSON.stringify(call(3, 'glue_resume', { context: handoff.context }))),
+  ]);
+  assert.equal(rows.length, 4);
+  assert.equal(rows[1].id, null);
+  assert.equal(rows[1].error.code, -32700);
+  assert.equal(rows[2].id, 'Unicode 🙂');
+  assert.deepEqual(rows[2].result, {});
+  const resumed = JSON.parse(resultText(rows[3]));
+  assert.equal(resumed.version, saved.version);
+  assert.equal(resumed.markdown, handoff.markdown);
+  assert.deepEqual(collectFiles(workspace), before);
+});
+
+test('input that ends partway through a character or an oversized line is refused', t => {
+  const { workspace, run } = fixture(t);
+  const partial = run([initialize(), ready, Buffer.from([0xe2, 0x82])]);
+  assert.equal(partial.length, 2);
+  assert.equal(partial[1].error.code, -32700);
+  const oversized = run([initialize(), ready, Buffer.alloc(2 * 1024 * 1024 + 1, 32)]);
+  assert.equal(oversized.length, 2);
+  assert.equal(oversized[1].error.code, -32600);
   assert.deepEqual(readdirSync(workspace), []);
 });

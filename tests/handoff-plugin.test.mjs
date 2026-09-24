@@ -59,7 +59,7 @@ function run(plugin, project, cwd, request) {
   });
 }
 
-test('plugin package has reviewed components, relocatable paths and verifiable inventory', t => {
+test('the Claude Code plugin has the expected files, no machine paths and a checkable inventory', t => {
   const { plugin, root } = fixture(t),
     receipt = packageClaudeCode(plugin);
   const sourcePackage = JSON.parse(
@@ -95,7 +95,7 @@ test('plugin package has reviewed components, relocatable paths and verifiable i
   assert.throws(() => packageClaudeCode(plugin), /already exists/);
 });
 
-test('plugin refuses missing, relative, unavailable and package-overlapping project bindings', t => {
+test('the plugin refuses a missing, relative or overlapping project folder', t => {
   const { plugin, project, root } = fixture(t);
   packageClaudeCode(plugin);
   for (const invalid of [
@@ -116,7 +116,7 @@ test('plugin refuses missing, relative, unavailable and package-overlapping proj
   assert.equal(selectProject(project, plugin), project);
 });
 
-test('packaged server binds host project rather than cwd and survives a fresh process', t => {
+test('the plugin uses the project folder the host names, not the working directory', t => {
   const { plugin, project, other } = fixture(t);
   packageClaudeCode(plugin);
   writeFileSync(join(other, 'private.txt'), 'UNSELECTED_OTHER_PROJECT_MARKER');
@@ -157,7 +157,7 @@ test('packaged server binds host project rather than cwd and survives a fresh pr
   );
 });
 
-test('switching package directories retains project history and removing the package leaves saved work', t => {
+test('replacing or removing the plugin keeps saved work', t => {
   const { root, project, other, plugin } = fixture(t);
   packageClaudeCode(plugin);
   const saved = run(
@@ -182,7 +182,7 @@ test('switching package directories retains project history and removing the pac
   assert.deepEqual(collectFiles(project), before);
 });
 
-test('marketplace package lists the packaged plugin by relative source and ships its license', async t => {
+test('the marketplace package lists the plugin by relative path and includes its license', async t => {
   const { packageMarketplace } = await import('../scripts/package-marketplace.mjs');
   const root = mkdtempSync(join(realpathSync(tmpdir()), 'glue-marketplace-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));

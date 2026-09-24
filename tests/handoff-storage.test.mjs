@@ -11,7 +11,7 @@ function fixture(t) {
   return dir;
 }
 for (const failure of ['writeFileSync', 'renameSync'])
-  test('atomic write cleans its own temporary file after ' + failure + ' fails', t => {
+  test('an atomic write removes its own temporary file when ' + failure + ' fails', t => {
     const dir = fixture(t),
       target = join(dir, 'file.md');
     fs.writeFileSync(target, 'original');
@@ -35,7 +35,7 @@ for (const failure of ['writeFileSync', 'renameSync'])
     assert.equal(fs.readFileSync(target + '.tmp', 'utf8'), 'unrelated');
     assert.deepEqual(fs.readdirSync(dir).sort(), ['file.md', 'file.md.tmp']);
   });
-test('failed exclusive temporary creation preserves the colliding file', t => {
+test('an atomic write never deletes a temporary file it did not create', t => {
   const dir = fixture(t),
     target = join(dir, 'file.md');
   fs.writeFileSync(target, 'original');

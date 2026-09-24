@@ -10,14 +10,44 @@ import {
 } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { spawnSync } from 'node:child_process';
 import { Handoffs, hash } from '../dist/handoff.js';
+import { Knowledge } from '../dist/knowledge.js';
 import { Transfers } from '../dist/transfer.js';
 
 function fixture(t) {
   const workspace = mkdtempSync(join(realpathSync(tmpdir()), 'glue-transfer-'));
   t.after(() => rmSync(workspace, { recursive: true, force: true }));
   const store = new Handoffs(workspace);
-  return { workspace, store, transfers: new Transfers(store) };
+  return { workspace, store, knowledge: new Knowledge(store), transfers: new Transfers(store) };
+}
+const initialize = {
+  jsonrpc: '2.0',
+  id: 'init',
+  method: 'initialize',
+  params: {
+    protocolVersion: '2025-11-25',
+    capabilities: {},
+    clientInfo: { name: 'test-client', version: '1' },
+  },
+};
+const ready = { jsonrpc: '2.0', method: 'notifications/initialized' };
+const call = (id, name, args) => ({
+  jsonrpc: '2.0',
+  id,
+  method: 'tools/call',
+  params: { name, arguments: args },
+});
+function mcp(workspace, messages) {
+  const input = messages.map(value => JSON.stringify(value)).join('\n') + '\n';
+  const child = spawnSync(process.execPath, ['dist/mcp.js', workspace], {
+    input,
+    encoding: 'utf8',
+    windowsHide: true,
+    timeout: 10000,
+  });
+  assert.equal(child.status, 0, child.stderr);
+  return child.stdout.trim().split('\n').filter(Boolean).map(JSON.parse);
 }
 const capture = (id, text, extra = {}) => ({
   id,
@@ -36,7 +66,7 @@ function exported(transfers, selection) {
   return transfers.run({ action: 'export', ...selection, reviewedHash: preview.payloadHash });
 }
 
-test('preview returns hashes and scope without payload bytes; exact review gates export', t => {
+test('preview shows hashes but no content, and export needs the previewed hash', t => {
   const { store, transfers } = fixture(t),
     receipt = save(store, 'SELECTED_MARKDOWN_CONTENT', {
       captures: [capture('a', 'SELECTED_CAPTURE_CONTENT')],
@@ -63,7 +93,7 @@ test('preview returns hashes and scope without payload bytes; exact review gates
   assert.equal(transfers.run({ action: 'preview', ...selection }).payloadHash, preview.payloadHash);
 });
 
-test('selected transfer excludes support identities/history and imports a proposed independent copy', t => {
+test('an export carries only what you selected, and the import becomes a proposed copy', t => {
   const source = fixture(t),
     target = fixture(t);
   writeFileSync(join(source.workspace, 'excluded-private-name.txt'), 'EXCLUDED_PRIVATE_PAYLOAD');
@@ -147,7 +177,7 @@ test('selected transfer excludes support identities/history and imports a propos
   assert.equal(target.store.resume({ context: 'reused.md' }).markdown, 'Reviewed current summary');
 });
 
-test('project-only and sensitive selected captures refuse export and scoped records remain restricted', t => {
+test('project-only, restricted or sensitive material cannot be exported', t => {
   for (const item of [
     capture('a', 'Ordinary private capture', { transfer: 'project-only' }),
     capture('a', 'Restricted', { scope: 'Do not share this capture' }),
@@ -184,7 +214,7 @@ test('project-only and sensitive selected captures refuse export and scoped reco
   );
 });
 
-test('payload privacy checks include text and explicit derivatives carry a new identity', t => {
+test('the handoff text is screened too, and a rewritten summary is marked as derived', t => {
   const { store, transfers } = fixture(t),
     receipt = save(store, 'Contact private.person@example.invalid for this work.');
   const selection = { context: 'note.md', version: receipt.version };
@@ -199,7 +229,7 @@ test('payload privacy checks include text and explicit derivatives carry a new i
   assert.equal(bundle.origin.version, receipt.version);
 });
 
-test('evidence selection uses reviewed portable labels rather than private source paths', t => {
+test('exported evidence uses the label you give it, never its file path', t => {
   const { workspace, store, transfers } = fixture(t);
   writeFileSync(join(workspace, 'internal-source-name.txt'), 'Reviewed evidence');
   const receipt = save(store, 'A selected finding', { evidence: ['internal-source-name.txt'] });
@@ -233,7 +263,7 @@ test('evidence selection uses reviewed portable labels rather than private sourc
   );
 });
 
-test('bundle tampering, stale review and size rejection leave destination uncommitted', t => {
+test('a tampered, unreviewed or oversized bundle is refused, and nothing is imported', t => {
   const source = fixture(t),
     target = fixture(t),
     receipt = save(source.store, 'Safe content');
@@ -295,7 +325,7 @@ test('bundle tampering, stale review and size rejection leave destination uncomm
   assert.notEqual(changed.version, receipt.version);
 });
 
-test('opaque project namespace is stable and independent from paths', t => {
+test('each project has a stable random ID that does not reveal its path', t => {
   const a = fixture(t),
     b = fixture(t),
     one = save(a.store, 'One'),
@@ -311,7 +341,7 @@ test('opaque project namespace is stable and independent from paths', t => {
   assert.equal(stored.namespace, first.namespace);
 });
 
-test('deliberate upstream comparison is host-asserted, does not fetch or adopt, and preserves saved bytes', t => {
+test('check compares against the version the host reports and never changes the copy', t => {
   const source = fixture(t),
     target = fixture(t),
     saved = save(source.store, 'Safe imported claim');
@@ -347,7 +377,7 @@ test('deliberate upstream comparison is host-asserted, does not fetch or adopt, 
   assert.equal(target.store.head('reused.md').version, imported.version);
 });
 
-test('local edits retain the original import receipt and mark modified content', t => {
+test('editing an imported copy keeps its import record and marks it modified', t => {
   const source = fixture(t),
     target = fixture(t),
     saved = save(source.store, 'Original imported text');
@@ -372,4 +402,125 @@ test('local edits retain the original import receipt and mark modified content',
   assert.equal(metadata.localModified, true);
   assert.equal(metadata.payloadHash, payloadHash);
   assert.equal(metadata.origin.version, saved.version);
+});
+
+test('only selected captures are exported, and the bundle imports through the MCP server', t => {
+  const source = fixture(t),
+    target = fixture(t);
+  const receipt = source.store.save({
+    context: 'note.md',
+    expectedVersion: null,
+    markdown: 'Reviewed summary',
+    captures: [
+      capture('allowed', 'Portable support', { transfer: 'allowed' }),
+      capture('local', 'Project-only support', { transfer: 'project-only' }),
+    ],
+    record: {
+      title: 'Sample record',
+      kind: 'note',
+      scope: 'test',
+      provenance: 'assistant',
+      status: 'active',
+    },
+  });
+  const bare = source.transfers.run({
+    action: 'preview',
+    context: 'note.md',
+    version: receipt.version,
+  });
+  assert.deepEqual(bare.manifest.captures, []);
+  assert.equal(bare.manifest.omittedSupport, 2);
+  const selection = { context: 'note.md', version: receipt.version, captures: ['allowed'] };
+  const preview = source.transfers.run({ action: 'preview', ...selection });
+  assert.equal(preview.manifest.captures.length, 1);
+  assert.equal(preview.manifest.omittedSupport, 1);
+  const { bundle, payloadHash } = source.transfers.run({
+    action: 'export',
+    ...selection,
+    reviewedHash: preview.payloadHash,
+  });
+  assert.equal(bundle.captures[0].id, 'allowed');
+  assert.throws(
+    () => source.transfers.run({ action: 'preview', ...selection, captures: ['local'] }),
+    /private or sensitive/,
+  );
+  // Round trip over the subprocess with real JSON types (object bundle, JSON null expectedVersion).
+  const rows = mcp(target.workspace, [
+    initialize,
+    ready,
+    call(1, 'glue_transfer', { action: 'preview-import', bundle }),
+    call(2, 'glue_transfer', {
+      action: 'import',
+      bundle,
+      reviewedHash: payloadHash,
+      context: 'imported.md',
+      expectedVersion: null,
+    }),
+    call(3, 'glue_resume', { context: 'imported.md' }),
+  ]);
+  assert.equal(JSON.parse(rows[1].result.content[0].text).payloadHash, payloadHash);
+  const imported = JSON.parse(rows[2].result.content[0].text);
+  assert.equal(imported.committed, true);
+  assert.equal(imported.independentCopy, true);
+  const resumed = JSON.parse(rows[3].result.content[0].text);
+  assert.equal(resumed.record.status, 'proposed');
+  assert.equal(resumed.captures.length, 1);
+});
+
+test('an imported copy never claims to match its source and never updates itself', t => {
+  const a = fixture(t),
+    b = fixture(t);
+  const first = a.store.save({
+    context: 'policy.md',
+    expectedVersion: null,
+    markdown: 'Alpha retention 30 days.',
+  });
+  const selection = { context: 'policy.md', version: first.version };
+  const preview = a.transfers.run({ action: 'preview', ...selection });
+  const exported = a.transfers.run({
+    action: 'export',
+    ...selection,
+    reviewedHash: preview.payloadHash,
+  });
+  const received = b.transfers.run({ action: 'preview-import', bundle: exported.bundle });
+  const copy = b.transfers.run({
+    action: 'import',
+    context: 'copy.md',
+    expectedVersion: null,
+    bundle: exported.bundle,
+    reviewedHash: received.payloadHash,
+  });
+  a.store.save({
+    context: 'policy.md',
+    expectedVersion: first.version,
+    markdown: 'Alpha retention 14 days.',
+  });
+  const local = b.knowledge.resume({ context: 'copy.md', knownVersion: copy.version });
+  assert.equal(local.basis.status, 'review_needed');
+  assert.deepEqual(
+    local.basis.issues.map(i => i.reason),
+    ['record_proposed'],
+  );
+  assert.equal(local.upstreamStatus, 'not-checked');
+  const current = a.transfers.run({
+    action: 'preview',
+    context: 'policy.md',
+    version: a.store.head('policy.md').version,
+  });
+  // The source identity is known from the received bundle; only the observed source head version
+  // changed.
+  const check = b.transfers.run({
+    action: 'check',
+    context: 'copy.md',
+    upstream: { ...exported.bundle.origin, version: a.store.head('policy.md').version },
+  });
+  assert.equal(check.status, 'changed');
+  assert.equal(check.changedStoredContent, false);
+  assert.equal(
+    b.transfers.run({ action: 'check', context: 'copy.md', upstream: null }).status,
+    'unavailable',
+  );
+  assert.equal(b.store.head('copy.md').version, copy.version);
+  assert.equal(b.knowledge.read({ context: 'copy.md' }).text, 'Alpha retention 30 days.');
+  assert.ok(current.payloadHash);
 });

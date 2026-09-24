@@ -10,6 +10,7 @@ import {
   readdirSync,
   renameSync,
   rmSync,
+  symlinkSync,
   unlinkSync,
   writeFileSync,
 } from 'node:fs';
@@ -20,10 +21,16 @@ import { pathKey } from '../dist/identity.js';
 import { Knowledge } from '../dist/knowledge.js';
 
 function fixture(t) {
-  const workspace = mkdtempSync(join(realpathSync(tmpdir()), 'glue-portable-'));
+  const workspace = mkdtempSync(join(realpathSync(tmpdir()), 'glue-paths-'));
   t.after(() => rmSync(workspace, { recursive: true, force: true }));
   return { workspace, store: new Handoffs(workspace) };
 }
+const first = (markdown = '# Context\nOriginal user decision.') => ({
+  context: 'notes/handoff.md',
+  expectedVersion: null,
+  markdown,
+  evidence: [],
+});
 function legacy(workspace, context, markdown = 'Legacy selected work', working = true) {
   const directory = join(workspace, '.glue', 'contexts', hash(context));
   mkdirSync(join(directory, 'revisions'), { recursive: true });
@@ -48,7 +55,7 @@ function legacy(workspace, context, markdown = 'Legacy selected work', working =
   return { version, revision, bytes, directory };
 }
 
-test('portable context aliases preserve one identity and actual case/Unicode filename', t => {
+test('case and Unicode spellings of a path reach one handoff, and the file keeps its own spelling', t => {
   const { workspace, store } = fixture(t);
   const context = 'Nótes/Café.MD',
     alias = 'no\u0301tes/cafe\u0301.md';
@@ -62,7 +69,7 @@ test('portable context aliases preserve one identity and actual case/Unicode fil
   assert.equal(readdirSync(join(workspace, '.glue', 'contexts')).length, 1);
 });
 
-test('legacy mixed-case history survives relocation and alias saves without revision rewriting', t => {
+test('a history saved under a mixed-case name still resumes after the project moves', t => {
   const original = fixture(t),
     moved = fixture(t);
   const prior = legacy(original.workspace, 'Notes/Decision.MD');
@@ -94,7 +101,7 @@ test('legacy mixed-case history survives relocation and alias saves without revi
   assert.equal(readdirSync(join(moved.workspace, '.glue', 'contexts')).length, 1);
 });
 
-test('legacy identity lookup survives a missing working file and caches only validated identities', t => {
+test('a mixed-case history resumes without its handoff file, and its identity is checked once', t => {
   const { workspace, store } = fixture(t);
   const prior = legacy(workspace, 'Notes/Decision.MD');
   unlinkSync(join(workspace, 'Notes/Decision.MD'));
@@ -109,7 +116,7 @@ test('legacy identity lookup survives a missing working file and caches only val
   assert.deepEqual(reads, [prior.version]);
 });
 
-test('adding a competing legacy identity is detected even after cached canonical lookup', t => {
+test('a second history for the same path is caught even after an earlier lookup', t => {
   const { workspace, store } = fixture(t);
   const receipt = store.save({ context: 'note.md', expectedVersion: null, markdown: 'Canonical' });
   assert.equal(store.resume({ context: 'NOTE.MD' }).version, receipt.version);
@@ -128,7 +135,7 @@ test('adding a competing legacy identity is detected even after cached canonical
   assert.equal(readFileSync(duplicate.revision, 'utf8'), duplicate.bytes);
 });
 
-test('multiple legacy aliases are refused without creating a new canonical history', t => {
+test('two mixed-case histories for one path are refused, and no third is created', t => {
   const { workspace, store } = fixture(t);
   legacy(workspace, 'Note.md', 'One', false);
   legacy(workspace, 'NOTE.md', 'Two', false);
@@ -136,7 +143,7 @@ test('multiple legacy aliases are refused without creating a new canonical histo
   assert.equal(existsSync(join(workspace, '.glue', 'contexts', hash('note.md'))), false);
 });
 
-test('unavailable unrelated identity does not hide known history but blocks unproven new identity', t => {
+test('an unreadable history does not hide others but blocks creating new handoffs', t => {
   const { workspace, store } = fixture(t);
   const receipt = store.save({ context: 'known.md', expectedVersion: null, markdown: 'Intact' });
   const unknown = join(workspace, '.glue', 'contexts', hash('unreadable-legacy'));
@@ -155,7 +162,7 @@ test('unavailable unrelated identity does not hide known history but blocks unpr
   assert.equal(existsSync(join(workspace, '.glue', 'contexts', hash('new.md'))), false);
 });
 
-test('case-only filesystem rename does not fork a portable context', t => {
+test('renaming a handoff file by case only keeps its history', t => {
   const { workspace, store } = fixture(t);
   const receipt = store.save({
     context: 'Note.md',
@@ -170,7 +177,7 @@ test('case-only filesystem rename does not fork a portable context', t => {
   assert.equal(readdirSync(join(workspace, '.glue', 'contexts')).length, 1);
 });
 
-test('distinct filesystem aliases are rejected on volumes that permit them', t => {
+test('two files that differ only by case are refused where the filesystem allows both', t => {
   const { workspace, store } = fixture(t);
   writeFileSync(join(workspace, 'Note.md'), 'First');
   try {
@@ -188,7 +195,7 @@ test('distinct filesystem aliases are rejected on volumes that permit them', t =
   assert.equal(existsSync(join(workspace, '.glue')), false);
 });
 
-test('resume names a path collision as the reason selected evidence is unavailable', t => {
+test('evidence with a case or Unicode twin is reported unavailable, with the reason', t => {
   const { workspace, store } = fixture(t);
   const composed = 'Caf\u00e9.txt',
     decomposed = 'Cafe\u0301.txt';
@@ -231,7 +238,7 @@ test('resume names a path collision as the reason selected evidence is unavailab
   ]);
 });
 
-test('Unicode normalization collisions are refused when distinct entries coexist', t => {
+test('two files that differ only by Unicode normalization are refused', t => {
   const { workspace, store } = fixture(t);
   const composed = 'Caf\u00e9.md',
     decomposed = 'Cafe\u0301.md';
@@ -251,7 +258,7 @@ test('Unicode normalization collisions are refused when distinct entries coexist
   assert.equal(existsSync(join(workspace, '.glue')), false);
 });
 
-test('a failed first save leaves no historical identity that blocks unrelated new work', t => {
+test('a refused first save leaves nothing that blocks new handoffs, but an active lock does', t => {
   const { workspace, store } = fixture(t);
   assert.throws(() =>
     store.save({
@@ -286,4 +293,69 @@ test('a failed first save leaves no historical identity that blocks unrelated ne
     /unavailable saved identity/,
   );
   assert.equal(existsSync(join(workspace, '.glue', 'contexts', hash('another.md'))), false);
+});
+
+test('unsafe handoff paths, links and oversized Markdown are refused', t => {
+  const { workspace, store } = fixture(t);
+  for (const context of [
+    '../outside.md',
+    '.git/config.md',
+    '.glue/other.md',
+    'notes/x.md:stream',
+    'CON.md',
+    'a./x.md',
+  ])
+    assert.throws(() => store.resume({ context }));
+  assert.throws(() => store.save({ ...first(), markdown: '🙂'.repeat(17000) }));
+  const target = join(workspace, 'target');
+  mkdirSync(target);
+  symlinkSync(target, join(workspace, 'linked'), 'junction');
+  assert.throws(() => store.resume({ context: 'linked/handoff.md' }), /linked/);
+});
+
+test('nested .git folders, host instruction files and Windows short names are refused', t => {
+  const { workspace, store } = fixture(t);
+  mkdirSync(join(workspace, 'sub', '.git'), { recursive: true });
+  writeFileSync(join(workspace, 'sub', '.git', 'config'), 'nested');
+  assert.throws(() => store.save({ ...first(), evidence: ['sub/.git/config'] }), /outside \.git/);
+  for (const context of [
+    'AGENTS.md',
+    'CLAUDE.md',
+    'docs/claude.local.md',
+    'skills/x/SKILL.md',
+    '.github/workflows/note.md',
+    '.cursor/rules/note.md',
+    'notes/.hidden/x.md',
+  ]) {
+    assert.throws(() => store.save({ ...first(), context }), /host instruction file/);
+    assert.throws(() => store.resume({ context }), /host instruction file/);
+  }
+  writeFileSync(join(workspace, 'AGENTS.md'), '# Project instructions');
+  assert.equal(store.save({ ...first(), evidence: ['AGENTS.md'] }).committed, true);
+  assert.equal(readFileSync(join(workspace, 'AGENTS.md'), 'utf8'), '# Project instructions');
+  mkdirSync(join(workspace, 'longdirectoryname'));
+  writeFileSync(join(workspace, 'longdirectoryname', 'source.txt'), 'source');
+  // Short names exist only on some Windows volumes.
+  if (existsSync(join(workspace, 'LONGDI~1', 'source.txt'))) {
+    assert.throws(
+      () =>
+        store.save({
+          context: 'notes/alias.md',
+          expectedVersion: null,
+          markdown: '# Alias',
+          evidence: ['LONGDI~1/source.txt'],
+        }),
+      /ambiguous/,
+    );
+    assert.throws(
+      () =>
+        store.save({
+          context: 'LONGDI~1/alias.md',
+          expectedVersion: null,
+          markdown: '# Alias',
+          evidence: [],
+        }),
+      /ambiguous/,
+    );
+  }
 });
