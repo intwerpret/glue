@@ -111,7 +111,7 @@ export function acquireLock(directory: string, name: string, message: string) {
 }
 
 const leftoverWriteLock =
-  " The leftover .write-lock directory blocks later writes to this context until it is removed, and blocks creating any new context if this one has no saved history. Nothing holds it, although owner.json inside may still name this running Glue process. Check the project's delete permissions.";
+  " The leftover .write-lock directory blocks later writes to this context until it is removed. Nothing holds it, although owner.json inside may still name this running Glue process. Check the project's delete permissions.";
 
 export function withWriteLock<T>(
   directory: string,

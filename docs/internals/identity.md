@@ -31,29 +31,9 @@ The handoff file on disk keeps whatever spelling it has. Only comparisons use th
 
 ## Folder names
 
-Each context's folder under `.glue/contexts/` is the SHA-256 of its identity string. Each revision also stores that identity in its `context` field.
+A context's identity is its key: the project-relative path in lowercase NFC. Its folder under `.glue/contexts/` is the SHA-256 of that identity, and each revision stores the identity in its `context` field. `Handoffs.location` computes the folder directly, so every spelling of a path reaches the same folder without searching the others.
 
-For a new context, the identity is the key: lowercase NFC.
-
-A history whose stored identity is mixed-case keeps that identity. New revisions in that history reuse it. No revision or dependency hash is rewritten.
-
-## Lookup
-
-`contextIdentity` finds the folder for a requested path:
-
-1. It lists the folder names in `.glue/contexts/`. More than 10,000 is refused.
-2. It hashes the key, the file's on-disk spelling and the requested spelling. Folders with those names are matched without being opened.
-3. For any other folder, it reads `HEAD.json` and the head revision, takes the stored identity, and checks that it hashes to the folder name. Verified results are cached in memory for the life of the `Handoffs` instance. Folder names are listed again on every lookup, so a new competing folder is noticed.
-4. It collects every identity whose key equals the requested key.
-
-The outcome:
-
-- **One match:** use that identity.
-- **Two or more:** refuse with a collision error. Both histories are preserved for the user to resolve.
-- **None, and every folder was readable:** create a new context under the key.
-- **None, but some folder could not be read:** refuse to create. The unreadable folder might be this context's history, and creating a second one would fork it.
-
-An empty folder is skipped. A failed first save can leave one behind, and it holds no data. Any entry at all, including a `.write-lock`, means the folder is not skipped.
+A damaged folder, or one holding a leftover `.write-lock`, affects only its own context. Other contexts can still be read and created.
 
 ## Consequences
 

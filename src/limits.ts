@@ -36,8 +36,6 @@ export const MAX_POINTER_BYTES = 4096;
 export const MAX_WORKING_COPY_BYTES = 131072;
 /** Revisions walked when looking up committed history or a retried request. */
 export const MAX_HISTORY_REVISIONS = 10000;
-/** Context directories enumerated during identity lookup. */
-export const MAX_CONTEXT_IDENTITIES = 10000;
 
 // Resume basis checks.
 /** Records visited, and issues reported, by one basis check. */

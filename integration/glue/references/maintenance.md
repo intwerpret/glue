@@ -102,8 +102,6 @@ Glue creates a `.write-lock` folder inside a context's folder while it saves, an
 
 If a result or error included `lockNotReleased`, the process named in `owner.json` is the Glue server that is still running. It no longer holds the lock. You only need to confirm that no other Glue process is writing.
 
-A leftover lock in a context that was never saved also blocks creating new contexts. Glue cannot tell whether that first save finished.
-
 Other lock folders:
 
 - `.glue/.write-lock` is left over from creating `.glue/PROJECT.json`. It blocks nothing. Delete it.

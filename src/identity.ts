@@ -1,7 +1,6 @@
 import { existsSync, readdirSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import { assertUnlinked } from './storage.js';
-import { MAX_CONTEXT_IDENTITIES } from './limits.js';
 
 /** A portable comparison key, not a rewrite of historical revision bytes. */
 export const pathKey = (value: string) => value.normalize('NFC').toLowerCase();
@@ -66,61 +65,4 @@ export function portableFile(workspace: string, input: string) {
   }
   assertUnlinked(file);
   return { file, rel: lexical.rel };
-}
-
-// Directory names bind immutable context identities, so a validated name can be reused even when
-// HEAD advances. Re-enumeration detects added competing identities saved under another spelling.
-const identityCache = new WeakMap<object, Map<string, string>>();
-export function contextIdentity(
-  owner: object,
-  root: string,
-  canonical: string,
-  spellings: string[],
-  hash: (value: string) => string,
-  load: (directory: string) => string,
-) {
-  assertUnlinked(root);
-  const ids = existsSync(root) ? readdirSync(root).filter(id => /^[a-f0-9]{64}$/.test(id)) : [];
-  if (ids.length > MAX_CONTEXT_IDENTITIES)
-    throw Error('Context identity lookup exceeds 10000 entries. No identity claim was made.');
-  const present = new Set(ids),
-    cache = identityCache.get(owner) ?? new Map<string, string>();
-  identityCache.set(owner, cache);
-  for (const id of cache.keys()) if (!present.has(id)) cache.delete(id);
-  // Known spellings need no HEAD read. Normal head()/inspect() verifies their contents.
-  const known = new Map([canonical, ...spellings].map(value => [hash(value), value]));
-  const matches = new Set<string>();
-  let unavailable = false;
-  for (const id of ids) {
-    let identity = known.get(id) ?? cache.get(id);
-    if (identity === undefined) {
-      try {
-        const directory = join(root, id);
-        assertUnlinked(directory);
-        // Failed first saves can leave an empty directory with no historical bytes.
-        // An active lock or any other entry prevents this exception.
-        if (readdirSync(directory).length === 0) continue;
-        identity = load(directory);
-        if (hash(identity) !== id) throw Error('Invalid context identity');
-        cache.set(id, identity);
-      } catch {
-        unavailable = true;
-        continue;
-      }
-    }
-    if (pathKey(identity) === canonical) matches.add(identity);
-  }
-  if (matches.size > 1)
-    throw Error(
-      'Portable context identity collision. Preserve both histories and resolve explicitly.',
-    );
-  const existing = [...matches][0];
-  if (existing !== undefined) return existing;
-  // An unreadable identity saved under another spelling might be this context. Never fork it
-  // implicitly.
-  if (unavailable)
-    throw Error(
-      'An unavailable saved identity prevents safely creating a new context. Inspect history first.',
-    );
-  return canonical;
 }

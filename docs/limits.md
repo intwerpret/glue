@@ -35,7 +35,6 @@ This is the one place where Glue's limits are listed. Other pages link here.
 | Transfer bundle | 1 MiB |
 | Handoffs per transfer | 1 |
 | Revisions per context for history lookups | 10,000 |
-| Contexts per project | 10,000 |
 | Recovery request file | 100,000 bytes |
 
 When a search or check reaches a limit, Glue says so. Search reports `next`, `gaps` or skipped counts. Resume sets `basis.complete` to `false`.

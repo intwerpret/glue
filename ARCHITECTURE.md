@@ -22,7 +22,7 @@ only, `smol-toml`.
 | `knowledge-schema.ts`  | Input schemas for the read tools, record metadata and dependency references.     |
 | `captures.ts`          | Capture schemas, capture preparation and the privacy heuristics.                 |
 | `transfer.ts`          | `Transfers`: preview, export, import and check of records between projects.      |
-| `identity.ts`          | Workspace path rules, portable path keys and context identity lookup.            |
+| `identity.ts`          | Workspace path rules and portable path keys.                                     |
 | `storage.ts`           | Link checks, lock directories and atomic file replacement.                       |
 | `schemas.ts`           | Shared schema pieces (digest, paths, capture id, record enums) and `sha256`.     |
 | `limits.ts`            | Every size and count bound, as named constants.                                  |
@@ -82,16 +82,15 @@ its current text is already saved.
       recovery-<hash>.json       record of each explicit restore
 ```
 
-- The **identity path** of a new context is its workspace-relative path in
-  Unicode NFC, lowercased. Older histories keep the exact spelling they were
-  saved under; `identity.ts` finds them. See [context identity](docs/internals/identity.md).
+- The **identity path** of a context is its workspace-relative path in Unicode
+  NFC, lowercased, so every spelling of a path reaches one folder. See
+  [context identity](docs/internals/identity.md).
 - A **version** is the sha256 of the revision's JSON bytes. A revision records
   its context, parent version, request hash, time, Markdown, evidence list and
   optional record metadata, dependency pins, captures and import origin.
 - An **evidence snapshot** is named by the sha256 of its bytes plus the source's
   lowercased extension. A **capture** snapshot is named by its hash alone.
-- `restoredFrom` in the revision schema and legacy-spelling identity lookup are
-  kept so older stores stay readable.
+- `restoredFrom` in the revision schema is kept so older stores stay readable.
 
 ## Save protocol
 

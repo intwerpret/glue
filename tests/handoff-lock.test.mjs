@@ -101,18 +101,21 @@ test('an operation failure is reported with the lock it left behind', t => {
   );
 });
 
-test('a refused first save reports the lock it left, which blocks new handoffs', t => {
+test('a refused first save reports the lock it left, which blocks only that handoff', t => {
   const workspace = fixture(t),
     store = new Handoffs(workspace);
   assert.throws(
     () => withLockRemovalDenied(() => store.save({ ...first, evidence: ['missing.txt'] })),
     error =>
-      error.code === 'ENOENT' && /blocks creating any new context/.test(error.lockNotReleased),
+      error.code === 'ENOENT' &&
+      /blocks later writes to this context/.test(error.lockNotReleased) &&
+      !/new context/.test(error.lockNotReleased),
   );
   assert.throws(
-    () => store.save({ ...first, context: 'notes/b.md' }),
-    /unavailable saved identity/,
+    () => store.save(first),
+    error => error.code === 'EEXIST' && error.retryable === true,
   );
+  assert.equal(store.save({ ...first, context: 'notes/b.md' }).committed, true);
 });
 
 test('release is attempted once and never throws', t => {

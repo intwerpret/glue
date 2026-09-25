@@ -14,13 +14,12 @@ import {
   unlinkSync,
   realpathSync,
 } from 'node:fs';
-import { relative, join, dirname, extname } from 'node:path';
+import { join, dirname, extname } from 'node:path';
 import { z } from 'zod';
 import { assertUnlinked, withWriteLock, atomicWrite } from './storage.js';
 import { recordSchema, referenceSchema, type Reference } from './knowledge-schema.js';
 import {
   assertContextPath,
-  contextIdentity,
   lexicalPath,
   pathKey,
   portableFile,
@@ -232,31 +231,11 @@ export class Handoffs {
     return portableFile(this.workspace, input);
   }
   location(context: string) {
+    // The identity is the path's portable key, so every spelling of a path reaches one folder.
     const path = this.path(context, true),
-      root = join(this.workspace, '.glue', 'contexts');
-    const spelling = relative(this.workspace, path.file).replaceAll('\\', '/');
-    const requested = relative(this.workspace, this.resolvePath(context, true).file).replaceAll(
-      '\\',
-      '/',
-    );
-    const known = contextIdentity(
-      this,
-      root,
-      path.rel,
-      [spelling, requested],
-      sha256,
-      directory => {
-        const pointer = stored(
-          headSchema,
-          read(join(directory, 'HEAD.json'), MAX_POINTER_BYTES),
-          'HEAD.json',
-        );
-        return this.revision(directory, pointer.version).context;
-      },
-    );
-    const directory = join(root, sha256(known));
+      directory = join(this.workspace, '.glue', 'contexts', sha256(path.rel));
     assertUnlinked(directory);
-    return { ...path, rel: known, directory, head: join(directory, 'HEAD.json') };
+    return { ...path, directory, head: join(directory, 'HEAD.json') };
   }
   revision(directory: string, version: string): Revision {
     digest.parse(version);
@@ -285,7 +264,7 @@ export class Handoffs {
         return { ...loc, version: null, saved: null };
       }
     }
-    const parsed = stored(headSchema, read(loc.head), 'HEAD.json');
+    const parsed = stored(headSchema, read(loc.head, MAX_POINTER_BYTES), 'HEAD.json');
     const saved = this.revision(loc.directory, parsed.version);
     if (saved.context !== loc.rel) throw Error('Revision belongs to another context.');
     return { ...loc, version: parsed.version, saved };

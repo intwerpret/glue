@@ -1,7 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  cpSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -11,11 +10,10 @@ import {
   renameSync,
   rmSync,
   symlinkSync,
-  unlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 import { Handoffs, hash } from '../dist/handoff.js';
 import { pathKey } from '../dist/identity.js';
 import { Knowledge } from '../dist/knowledge.js';
@@ -31,29 +29,6 @@ const first = (markdown = '# Context\nOriginal user decision.') => ({
   markdown,
   evidence: [],
 });
-function legacy(workspace, context, markdown = 'Legacy selected work', working = true) {
-  const directory = join(workspace, '.glue', 'contexts', hash(context));
-  mkdirSync(join(directory, 'revisions'), { recursive: true });
-  const bytes = JSON.stringify({
-    format: 1,
-    context,
-    parent: null,
-    request: hash('legacy request ' + context),
-    at: '2026-01-01T00:00:00.000Z',
-    markdown,
-    evidence: [],
-  });
-  const version = hash(bytes),
-    revision = join(directory, 'revisions', version + '.json');
-  writeFileSync(revision, bytes);
-  writeFileSync(join(directory, 'HEAD.json'), JSON.stringify({ format: 1, version }));
-  writeFileSync(join(directory, '.initialized'), 'Glue handoff initialized\n');
-  if (working) {
-    mkdirSync(dirname(join(workspace, context)), { recursive: true });
-    writeFileSync(join(workspace, context), markdown);
-  }
-  return { version, revision, bytes, directory };
-}
 
 test('case and Unicode spellings of a path reach one handoff, and the file keeps its own spelling', t => {
   const { workspace, store } = fixture(t);
@@ -69,97 +44,20 @@ test('case and Unicode spellings of a path reach one handoff, and the file keeps
   assert.equal(readdirSync(join(workspace, '.glue', 'contexts')).length, 1);
 });
 
-test('a history saved under a mixed-case name still resumes after the project moves', t => {
-  const original = fixture(t),
-    moved = fixture(t);
-  const prior = legacy(original.workspace, 'Notes/Decision.MD');
-  cpSync(original.workspace, moved.workspace, { recursive: true });
-  const store = new Handoffs(moved.workspace);
-  const view = store.resume({ context: 'notes/decision.md' });
-  assert.equal(view.context, 'Notes/Decision.MD');
-  assert.equal(view.version, prior.version);
-  const receipt = store.save({
-    context: 'NOTES/DECISION.MD',
-    expectedVersion: prior.version,
-    markdown: 'Continued after relocation',
-  });
-  const location = store.location('notes/decision.md');
-  assert.equal(
-    location.directory,
-    join(moved.workspace, '.glue', 'contexts', hash('Notes/Decision.MD')),
-  );
-  assert.equal(store.revision(location.directory, receipt.version).parent, prior.version);
-  assert.equal(
-    readFileSync(join(location.directory, 'revisions', prior.version + '.json'), 'utf8'),
-    prior.bytes,
-  );
-  assert.equal(readFileSync(prior.revision, 'utf8'), prior.bytes);
-  assert.equal(
-    readFileSync(join(moved.workspace, 'Notes/Decision.MD'), 'utf8'),
-    'Continued after relocation',
-  );
-  assert.equal(readdirSync(join(moved.workspace, '.glue', 'contexts')).length, 1);
-});
-
-test('a mixed-case history resumes without its handoff file, and its identity is checked once', t => {
-  const { workspace, store } = fixture(t);
-  const prior = legacy(workspace, 'Notes/Decision.MD');
-  unlinkSync(join(workspace, 'Notes/Decision.MD'));
-  assert.equal(store.resume({ context: 'notes/decision.md' }).version, prior.version);
-  const original = store.revision.bind(store),
-    reads = [];
-  store.revision = (directory, version) => {
-    reads.push(version);
-    return original(directory, version);
-  };
-  assert.equal(store.resume({ context: 'notes/decision.md' }).workingCopy.status, 'missing');
-  assert.deepEqual(reads, [prior.version]);
-});
-
-test('a second history for the same path is caught even after an earlier lookup', t => {
-  const { workspace, store } = fixture(t);
-  const receipt = store.save({ context: 'note.md', expectedVersion: null, markdown: 'Canonical' });
-  assert.equal(store.resume({ context: 'NOTE.MD' }).version, receipt.version);
-  const duplicate = legacy(workspace, 'NoTe.md', 'Different legacy history', false);
-  assert.throws(() => store.resume({ context: 'note.md' }), /identity collision/);
-  assert.throws(
-    () =>
-      store.save({
-        context: 'note.md',
-        expectedVersion: receipt.version,
-        markdown: 'must not overwrite',
-      }),
-    /identity collision/,
-  );
-  assert.equal(readFileSync(join(workspace, 'note.md'), 'utf8'), 'Canonical');
-  assert.equal(readFileSync(duplicate.revision, 'utf8'), duplicate.bytes);
-});
-
-test('two mixed-case histories for one path are refused, and no third is created', t => {
-  const { workspace, store } = fixture(t);
-  legacy(workspace, 'Note.md', 'One', false);
-  legacy(workspace, 'NOTE.md', 'Two', false);
-  assert.throws(() => store.resume({ context: 'note.md' }), /identity collision/);
-  assert.equal(existsSync(join(workspace, '.glue', 'contexts', hash('note.md'))), false);
-});
-
-test('an unreadable history does not hide others but blocks creating new handoffs', t => {
+test('a damaged handoff stays reported as damaged and does not affect other handoffs', t => {
   const { workspace, store } = fixture(t);
   const receipt = store.save({ context: 'known.md', expectedVersion: null, markdown: 'Intact' });
-  const unknown = join(workspace, '.glue', 'contexts', hash('unreadable-legacy'));
-  mkdirSync(unknown, { recursive: true });
-  writeFileSync(join(unknown, 'HEAD.json'), 'broken');
+  const damaged = join(workspace, '.glue', 'contexts', hash('damaged.md'));
+  mkdirSync(damaged, { recursive: true });
+  writeFileSync(join(damaged, 'HEAD.json'), 'broken');
   assert.equal(store.resume({ context: 'known.md' }).version, receipt.version);
-  assert.throws(
-    () =>
-      store.save({
-        context: 'new.md',
-        expectedVersion: null,
-        markdown: 'Cannot establish identity',
-      }),
-    /unavailable saved identity/,
+  const created = store.save({ context: 'new.md', expectedVersion: null, markdown: 'New work' });
+  assert.equal(store.resume({ context: 'new.md' }).version, created.version);
+  assert.throws(() => store.resume({ context: 'damaged.md' }));
+  assert.throws(() =>
+    store.save({ context: 'damaged.md', expectedVersion: null, markdown: 'Must not reset' }),
   );
-  assert.equal(existsSync(join(workspace, '.glue', 'contexts', hash('new.md'))), false);
+  assert.equal(readFileSync(join(damaged, 'HEAD.json'), 'utf8'), 'broken');
 });
 
 test('renaming a handoff file by case only keeps its history', t => {
@@ -258,7 +156,7 @@ test('two files that differ only by Unicode normalization are refused', t => {
   assert.equal(existsSync(join(workspace, '.glue')), false);
 });
 
-test('a refused first save leaves nothing that blocks new handoffs, but an active lock does', t => {
+test('a refused or interrupted first save blocks only its own handoff', t => {
   const { workspace, store } = fixture(t);
   assert.throws(() =>
     store.save({
@@ -268,31 +166,34 @@ test('a refused first save leaves nothing that blocks new handoffs, but an activ
       evidence: ['missing.txt'],
     }),
   );
-  // A rejected first save leaves no identity directory; a pre-existing empty remnant is still
-  // tolerated by identity lookup.
+  // A refused first save leaves no folder behind; an empty folder left by an older one is harmless.
   assert.equal(existsSync(join(workspace, '.glue', 'contexts', hash('failed.md'))), false);
   const empty = join(workspace, '.glue', 'contexts', hash('remnant.md'));
   mkdirSync(empty, { recursive: true });
   assert.deepEqual(readdirSync(empty), []);
+  assert.equal(
+    store.save({ context: 'remnant.md', expectedVersion: null, markdown: 'Saved' }).committed,
+    true,
+  );
+  assert.equal(store.resume({ context: 'failed.md' }).version, null);
+  // A first save interrupted while holding its lock blocks that handoff until the lock is cleared.
+  const interrupted = join(workspace, '.glue', 'contexts', hash('interrupted.md'));
+  mkdirSync(join(interrupted, '.write-lock'), { recursive: true });
+  assert.throws(
+    () =>
+      store.save({
+        context: 'interrupted.md',
+        expectedVersion: null,
+        markdown: 'Do not ignore an active writer',
+      }),
+    error => error.code === 'EEXIST',
+  );
   const receipt = store.save({
     context: 'other.md',
     expectedVersion: null,
     markdown: 'Independent work',
   });
   assert.equal(store.resume({ context: 'other.md' }).version, receipt.version);
-  assert.equal(store.resume({ context: 'failed.md' }).version, null);
-  const interrupted = join(workspace, '.glue', 'contexts', hash('unknown-legacy-identity'));
-  mkdirSync(join(interrupted, '.write-lock'), { recursive: true });
-  assert.throws(
-    () =>
-      store.save({
-        context: 'another.md',
-        expectedVersion: null,
-        markdown: 'Do not ignore an active writer',
-      }),
-    /unavailable saved identity/,
-  );
-  assert.equal(existsSync(join(workspace, '.glue', 'contexts', hash('another.md'))), false);
 });
 
 test('unsafe handoff paths, links and oversized Markdown are refused', t => {
